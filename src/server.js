@@ -2,10 +2,63 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
+const fs = require("fs");
+const path = require("path");
+const cron = require("node-cron");
 const logger = require("./utils/logger");
 const validateCredentials = require("./utils/validateEnv");
 const PipelineOrchestrator = require("./orchestrator");
 const dedup = require("./utils/deduplication");
+
+// ---- Scheduler state ----
+const SCHEDULES_FILE = path.join(__dirname, "../data/schedules.json");
+const activeCronJobs = {};
+
+function loadSchedules() {
+  try {
+    if (fs.existsSync(SCHEDULES_FILE)) {
+      return JSON.parse(fs.readFileSync(SCHEDULES_FILE, "utf8"));
+    }
+  } catch {}
+  return {};
+}
+
+function saveSchedules(schedules) {
+  fs.mkdirSync(path.dirname(SCHEDULES_FILE), { recursive: true });
+  fs.writeFileSync(SCHEDULES_FILE, JSON.stringify(schedules, null, 2));
+}
+
+function getNextRun(cronExpr) {
+  try {
+    // Simple: node-cron does not expose next-run natively, we return the expr
+    return cronExpr;
+  } catch {
+    return null;
+  }
+}
+
+function registerCronJob(phase, cronExpr, schedules, pipelineRef) {
+  if (activeCronJobs[phase]) {
+    activeCronJobs[phase].stop();
+    delete activeCronJobs[phase];
+  }
+  if (!cronExpr || schedules[phase]?.enabled === false) return;
+  if (!cron.validate(cronExpr)) return;
+  activeCronJobs[phase] = cron.schedule(cronExpr, async () => {
+    logger.info(`[Scheduler] Running scheduled phase: ${phase}`);
+    try {
+      if (phase === "all") await pipelineRef.runFull();
+      else if (phase === "scrape") await pipelineRef.runScraping();
+      else if (phase === "enrich") await pipelineRef.runEnrichment();
+      else if (phase === "outreach") await pipelineRef.runOutreach(1);
+      else if (phase === "score") await pipelineRef.runScoring();
+      else if (phase === "report") await pipelineRef.runReporting();
+    } catch (err) {
+      logger.error(`[Scheduler] Phase ${phase} failed: ${err.message}`);
+    }
+  });
+  logger.info(`[Scheduler] Registered cron for '${phase}': ${cronExpr}`);
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -184,8 +237,187 @@ app.post("/api/pipeline/reply", async (req, res) => {
   }
 });
 
+
 // Start Server
+// Load & register saved schedules on startup
+const savedSchedules = loadSchedules();
+for (const [phase, cfg] of Object.entries(savedSchedules)) {
+  if (cfg.enabled && cfg.cron) {
+    registerCronJob(phase, cfg.cron, savedSchedules, pipeline);
+  }
+}
+
+/**
+ * GET /api/icp — Get current ICP configuration
+ */
+app.get("/api/icp", (req, res) => {
+  try {
+    const icpPath = path.join(__dirname, "config/icp.config.js");
+    delete require.cache[require.resolve(icpPath)];
+    const icp = require(icpPath);
+    res.json(icp);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/icp — Update ICP configuration
+ */
+app.post("/api/icp", (req, res) => {
+  try {
+    const icpPath = path.join(__dirname, "config/icp.config.js");
+    fs.writeFileSync(icpPath, `module.exports = ${JSON.stringify(req.body, null, 2)};\n`);
+    delete require.cache[require.resolve(icpPath)];
+    res.json({ success: true, message: "ICP configuration updated" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/env — Get environment variables (safely exposing to dashboard admin)
+ */
+app.get("/api/env", (req, res) => {
+  try {
+    const envPath = path.join(process.cwd(), ".env");
+    if (!fs.existsSync(envPath)) return res.json({});
+    const envContent = fs.readFileSync(envPath, "utf-8");
+    const parsed = require("dotenv").parse(envContent);
+    res.json(parsed);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/env — Update environment variables
+ */
+app.post("/api/env", (req, res) => {
+  try {
+    const envPath = path.join(process.cwd(), ".env");
+    let content = "";
+    for (const [key, value] of Object.entries(req.body)) {
+      if (value.includes("\\n")) {
+        content += `${key}="${value}"\n`;
+      } else {
+        content += `${key}=${value}\n`;
+      }
+    }
+    fs.writeFileSync(envPath, content);
+    require("dotenv").config({ override: true }); // Reload into process.env
+    res.json({ success: true, message: "Credentials updated. Some changes may require a server restart." });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/logs — Return last N lines of the most recent log file
+ */
+app.get("/api/logs", (req, res) => {
+  try {
+    const logsDir = path.join(__dirname, "../logs");
+    if (!fs.existsSync(logsDir)) return res.json({ lines: [] });
+
+    const files = fs.readdirSync(logsDir)
+      .filter(f => f.endsWith(".log"))
+      .map(f => ({ name: f, mtime: fs.statSync(path.join(logsDir, f)).mtime }))
+      .sort((a, b) => b.mtime - a.mtime);
+
+    if (files.length === 0) return res.json({ lines: [] });
+
+    const latestLog = path.join(logsDir, files[0].name);
+    const content = fs.readFileSync(latestLog, "utf8");
+    const lines = content.trim().split("\n").slice(-200);
+    res.json({ lines, file: files[0].name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/sheets/data — Fetch all sheet tabs and return as JSON
+ */
+app.get("/api/sheets/data", async (req, res) => {
+  try {
+    const sheets = require("./integrations/GoogleSheetsIntegration");
+    if (!sheets.initialized) {
+      await sheets.init();
+    }
+    if (sheets.dryRun || !sheets.sheets) {
+      return res.status(503).json({ error: "Google Sheets not configured" });
+    }
+
+    const tabNames = ["Companies", "Contacts", "Outreach Log", "Responses", "Lead Scores"];
+    const result = {};
+
+    for (const tab of tabNames) {
+      try {
+        const response = await sheets.sheets.spreadsheets.values.get({
+          spreadsheetId: sheets.spreadsheetId,
+          range: `${tab}!A:Z`,
+        });
+        const rows = response.data.values || [];
+        const [headers, ...data] = rows;
+        result[tab] = { headers: headers || [], rows: data || [] };
+      } catch {
+        result[tab] = { headers: [], rows: [] };
+      }
+    }
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/schedule — Get current schedule config
+ */
+app.get("/api/schedule", (req, res) => {
+  try {
+    const schedules = loadSchedules();
+    const phases = ["all", "scrape", "enrich", "outreach", "score", "report"];
+    const result = {};
+    for (const phase of phases) {
+      result[phase] = schedules[phase] || { cron: "", enabled: false };
+      result[phase].active = !!activeCronJobs[phase];
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/schedule — Save and register a cron schedule
+ * Body: { phase: "scrape", cron: "0 9 * * *", enabled: true }
+ */
+app.post("/api/schedule", (req, res) => {
+  try {
+    const { phase, cron: cronExpr, enabled } = req.body;
+    const validPhases = ["all", "scrape", "enrich", "outreach", "score", "report"];
+    if (!validPhases.includes(phase)) {
+      return res.status(400).json({ error: "Invalid phase name" });
+    }
+    if (cronExpr && !cron.validate(cronExpr)) {
+      return res.status(400).json({ error: "Invalid cron expression" });
+    }
+
+    const schedules = loadSchedules();
+    schedules[phase] = { cron: cronExpr || "", enabled: !!enabled };
+    saveSchedules(schedules);
+    registerCronJob(phase, cronExpr, schedules, pipeline);
+
+    logger.info(`[Scheduler] Schedule updated for '${phase}': ${cronExpr}, enabled: ${enabled}`);
+    res.json({ success: true, phase, cron: cronExpr, enabled: !!enabled, active: !!activeCronJobs[phase] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   logger.info(`\n🚀 Keli Sensing API Server running on port ${PORT}`);
-  logger.info(`Send POST requests to http://localhost:${PORT}/api/pipeline/all to run the agent`);
+  logger.info(`Dashboard API ready at http://localhost:${PORT}`);
 });
