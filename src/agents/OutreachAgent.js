@@ -32,6 +32,17 @@ class OutreachAgent {
     logger.info(`=== OUTREACH AGENT STARTING ===`);
     logger.info(`Contacts: ${contacts.length}, Starting at step ${step}`);
 
+    // ── Filter out mock contacts — never send real emails to fabricated addresses ──
+    const realContacts = contacts.filter((c) => c.source !== "apollo_mock");
+    const mockCount = contacts.length - realContacts.length;
+    if (mockCount > 0) {
+      logger.warn(`⚠️  Skipping ${mockCount} mock contacts — set a valid APOLLO_API_KEY to send real outreach`);
+    }
+    if (realContacts.length === 0) {
+      logger.warn("No real (Apollo-verified) contacts to send outreach to. Outreach skipped.");
+      return { sent: [], skipped: contacts.map((c) => ({ contact: c.name, reason: "mock_contact" })), failed: [] };
+    }
+
     // Initialize SMTP
     await smtp.connect();
 
@@ -47,7 +58,7 @@ class OutreachAgent {
       return results;
     }
 
-    for (const contact of contacts) {
+    for (const contact of realContacts) {
       // Skip if already contacted at this step
       if (this._alreadyContactedAtStep(contact.id, step)) {
         logger.debug(`Skipping ${contact.name} — already at step ${step}`);
