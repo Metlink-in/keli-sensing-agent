@@ -20,7 +20,7 @@ class LeadScoringAgent {
 
   /**
    * MAIN ENTRY POINT
-   * Scores all contacts against multiple dimensions
+   * Scores all contacts, then deduplicates by company (best contact per company wins).
    */
   async run(contacts, companies, outreachLog = [], responses = []) {
     logger.info(`=== LEAD SCORING AGENT STARTING ===`);
@@ -43,8 +43,24 @@ class LeadScoringAgent {
     // Sort by total score descending
     scored.sort((a, b) => b.totalScore - a.totalScore);
 
+    // ── Deduplicate by company: keep only the highest-scoring contact per company ──
+    // This prevents duplicate rows in Lead Scores when a company has multiple contacts
+    const seenCompanies = new Map();
+    const deduped = [];
+    for (const entry of scored) {
+      const companyKey = (entry.companyId || entry.companyName || "").toLowerCase();
+      if (!seenCompanies.has(companyKey)) {
+        seenCompanies.set(companyKey, true);
+        deduped.push(entry);
+      } else {
+        logger.debug(`Dedup: skipping additional contact for company "${entry.companyName}"`);
+      }
+    }
+
+    logger.info(`Lead score dedup: ${scored.length} contacts → ${deduped.length} unique companies`);
+
     // Assign priority labels
-    const prioritized = scored.map((s) => ({
+    const prioritized = deduped.map((s) => ({
       ...s,
       priority: this.getPriorityLabel(s.totalScore),
     }));

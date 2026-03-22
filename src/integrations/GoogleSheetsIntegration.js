@@ -87,9 +87,29 @@ class GoogleSheetsIntegration {
   }
 
   /**
-   * Append company records to Companies sheet
+   * Clear a sheet's data rows (everything from row 2 downward, keeping header)
+   */
+  async clearSheet(sheetName) {
+    if (this.dryRun || !this.sheets) {
+      logger.info(`[DRY RUN] Would clear "${sheetName}"`);
+      return;
+    }
+    try {
+      await this.sheets.spreadsheets.values.clear({
+        spreadsheetId: this.spreadsheetId,
+        range: `${sheetName}!A2:ZZ`,
+      });
+      logger.info(`Cleared existing data in "${sheetName}"`);
+    } catch (err) {
+      logger.warn(`Could not clear "${sheetName}": ${err.message}`);
+    }
+  }
+
+  /**
+   * Sync company records — clears sheet first so no duplicates across runs
    */
   async appendCompanies(companies) {
+    await this.clearSheet(SHEETS.COMPANIES);
     const rows = companies.map((c) => [
       c.id, c.name, c.domain, c.website, c.industry, c.subIndustry || "",
       c.employeeCount || "", c.revenueRange || "", c.headquarters || "",
@@ -98,38 +118,37 @@ class GoogleSheetsIntegration {
       c.icpScore || "", c.primarySegment || "",
       c.linkedinUrl || "", c.source || "", c.discoveredAt || new Date().toISOString(),
     ]);
-
     return this._appendRows(SHEETS.COMPANIES, rows);
   }
 
   /**
-   * Append contact records to Contacts sheet
+   * Sync contact records — clears sheet first so no duplicates across runs
    */
   async appendContacts(contacts) {
+    await this.clearSheet(SHEETS.CONTACTS);
     const rows = contacts.map((c) => [
       c.id, c.name, c.firstName || "", c.lastName || "", c.title || "",
       c.email || "", c.emailStatus || "", c.phone || "", c.linkedinUrl || "",
       c.company || "", c.companyDomain || "", c.city || "", c.country || "",
       c.seniorityLevel || "", c.source || "", c.enrichedAt || new Date().toISOString(),
     ]);
-
     return this._appendRows(SHEETS.CONTACTS, rows);
   }
 
   /**
-   * Log outreach activity
+   * Sync outreach log — clears sheet first so no duplicates across runs
    */
   async logOutreach(outreachRecords) {
+    await this.clearSheet(SHEETS.OUTREACH);
     const rows = outreachRecords.map((o) => [
       o.contactId, o.contactName, o.company, o.email,
       o.step, o.type, o.subject, o.status, o.sentAt, o.messageId || "",
     ]);
-
     return this._appendRows(SHEETS.OUTREACH, rows);
   }
 
   /**
-   * Log an inbound response
+   * Log an inbound response (appends — responses are cumulative, don't clear)
    */
   async logResponse(response) {
     const row = [
@@ -139,20 +158,19 @@ class GoogleSheetsIntegration {
       response.timeline || "", response.budget || "",
       response.summary, response.nextAction, response.draftReplyStatus || "Pending",
     ];
-
     return this._appendRows(SHEETS.RESPONSES, [row]);
   }
 
   /**
-   * Update lead scores
+   * Sync lead scores — clears sheet first so 1 row per company, no duplicates
    */
   async updateLeadScores(leadScores) {
+    await this.clearSheet(SHEETS.LEADS);
     const rows = leadScores.map((l) => [
       l.companyId, l.companyName, l.contactName, l.title, l.email,
       l.totalScore, l.companyScore, l.engagementScore, l.sentimentScore,
       l.priority, l.lastActivity, l.notes || "",
     ]);
-
     return this._appendRows(SHEETS.LEADS, rows);
   }
 
