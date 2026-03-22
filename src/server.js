@@ -337,6 +337,110 @@ app.get("/api/logs", (req, res) => {
 });
 
 /**
+ * DELETE /api/sheets/row — Delete a specific row from a sheet tab
+ * Body: { sheet: "Companies", rowIndex: 2 }  (rowIndex is 1-based, excluding header)
+ */
+app.delete("/api/sheets/row", async (req, res) => {
+  try {
+    const { sheet, rowIndex } = req.body;
+    if (!sheet || rowIndex === undefined) {
+      return res.status(400).json({ error: "Missing 'sheet' or 'rowIndex'" });
+    }
+
+    const sheets = require("./integrations/GoogleSheetsIntegration");
+    if (!sheets.initialized) await sheets.init();
+    if (sheets.dryRun || !sheets.sheets) {
+      return res.status(503).json({ error: "Google Sheets not configured" });
+    }
+
+    // Get the sheet's internal sheetId
+    const meta = await sheets.sheets.spreadsheets.get({ spreadsheetId: sheets.spreadsheetId });
+    const sheetMeta = meta.data.sheets.find(s => s.properties.title === sheet);
+    if (!sheetMeta) return res.status(404).json({ error: `Sheet "${sheet}" not found` });
+
+    const sheetId = sheetMeta.properties.sheetId;
+    // rowIndex from frontend is 0-based among data rows; in Sheets API row 0 = header, row 1 = first data row
+    const startRowIndex = rowIndex + 1; // +1 to skip header
+
+    await sheets.sheets.spreadsheets.batchUpdate({
+      spreadsheetId: sheets.spreadsheetId,
+      requestBody: {
+        requests: [{
+          deleteDimension: {
+            range: {
+              sheetId,
+              dimension: "ROWS",
+              startIndex: startRowIndex,
+              endIndex: startRowIndex + 1,
+            },
+          },
+        }],
+      },
+    });
+
+    logger.info(`Deleted row ${rowIndex} from sheet "${sheet}"`);
+    res.json({ success: true });
+  } catch (err) {
+    logger.error(`Delete row failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/sheets/clear — Clear all data rows from a sheet tab (keeps header)
+ * Body: { sheet: "Companies" }
+ */
+app.delete("/api/sheets/clear", async (req, res) => {
+  try {
+    const { sheet } = req.body;
+    if (!sheet) return res.status(400).json({ error: "Missing 'sheet'" });
+
+    const sheets = require("./integrations/GoogleSheetsIntegration");
+    if (!sheets.initialized) await sheets.init();
+    if (sheets.dryRun || !sheets.sheets) {
+      return res.status(503).json({ error: "Google Sheets not configured" });
+    }
+
+    // Get row count first
+    const response = await sheets.sheets.spreadsheets.values.get({
+      spreadsheetId: sheets.spreadsheetId,
+      range: `${sheet}!A:A`,
+    });
+    const totalRows = (response.data.values || []).length;
+    if (totalRows <= 1) return res.json({ success: true, message: "Sheet already empty" });
+
+    // Get sheetId
+    const meta = await sheets.sheets.spreadsheets.get({ spreadsheetId: sheets.spreadsheetId });
+    const sheetMeta = meta.data.sheets.find(s => s.properties.title === sheet);
+    if (!sheetMeta) return res.status(404).json({ error: `Sheet "${sheet}" not found` });
+
+    const sheetId = sheetMeta.properties.sheetId;
+
+    await sheets.sheets.spreadsheets.batchUpdate({
+      spreadsheetId: sheets.spreadsheetId,
+      requestBody: {
+        requests: [{
+          deleteDimension: {
+            range: {
+              sheetId,
+              dimension: "ROWS",
+              startIndex: 1,        // keep row 0 (header)
+              endIndex: totalRows,
+            },
+          },
+        }],
+      },
+    });
+
+    logger.info(`Cleared all data from sheet "${sheet}" (${totalRows - 1} rows deleted)`);
+    res.json({ success: true, deleted: totalRows - 1 });
+  } catch (err) {
+    logger.error(`Clear sheet failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * GET /api/sheets/data — Fetch all sheet tabs and return as JSON
  */
 app.get("/api/sheets/data", async (req, res) => {

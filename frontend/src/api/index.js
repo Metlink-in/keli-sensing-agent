@@ -29,7 +29,9 @@ export const saveEnv        = (data)     => api.post("/env", data);
 export const getLogs        = ()         => api.get("/logs");
 
 // --- Sheets ---
-export const getSheetsData  = ()         => api.get("/sheets/data");
+export const getSheetsData  = ()                          => api.get("/sheets/data");
+export const deleteSheetRow = (sheet, rowIndex)           => api.delete("/sheets/row", { data: { sheet, rowIndex } });
+export const clearSheet     = (sheet)                     => api.delete("/sheets/clear", { data: { sheet } });
 
 // --- Scheduler ---
 export const getSchedules   = ()         => api.get("/schedule");
