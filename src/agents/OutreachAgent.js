@@ -32,60 +32,97 @@ class OutreachAgent {
     logger.info(`=== OUTREACH AGENT STARTING ===`);
     logger.info(`Contacts: ${contacts.length}, Starting at step ${step}`);
 
-    // ── Filter out mock contacts — never send real emails to fabricated addresses ──
+    // Split into real (Apollo-verified) and mock contacts
     const realContacts = contacts.filter((c) => c.source !== "apollo_mock");
-    const mockCount = contacts.length - realContacts.length;
-    if (mockCount > 0) {
-      logger.warn(`⚠️  Skipping ${mockCount} mock contacts — set a valid APOLLO_API_KEY to send real outreach`);
-    }
-    if (realContacts.length === 0) {
-      logger.warn("No real (Apollo-verified) contacts to send outreach to. Outreach skipped.");
-      return { sent: [], skipped: contacts.map((c) => ({ contact: c.name, reason: "mock_contact" })), failed: [] };
-    }
+    const mockContacts = contacts.filter((c) => c.source === "apollo_mock");
 
-    // Initialize SMTP
-    await smtp.connect();
-
-    const results = {
-      sent: [],
-      skipped: [],
-      failed: [],
-    };
+    if (mockContacts.length > 0) {
+      logger.info(`📧 ${realContacts.length} real contacts (will send) | 🔵 ${mockContacts.length} mock contacts (will simulate — no SMTP)`);
+    }
 
     const stepConfig = this.sequence.find((s) => s.step === step);
     if (!stepConfig) {
       logger.error(`No config found for step ${step}`);
-      return results;
+      return { sent: [], skipped: [], failed: [] };
     }
 
-    for (const contact of realContacts) {
-      // Skip if already contacted at this step
+    const results = { sent: [], skipped: [], failed: [], simulated: [] };
+
+    // ── Phase A: Send real outreach via SMTP ──────────────────
+    if (realContacts.length > 0) {
+      await smtp.connect();
+      for (const contact of realContacts) {
+        if (this._alreadyContactedAtStep(contact.id, step)) {
+          results.skipped.push({ contact: contact.name, reason: "already_contacted" });
+          continue;
+        }
+        try {
+          const result = await this.sendToContact(contact, stepConfig);
+          if (result.sent) {
+            results.sent.push(result);
+            this._logOutreach(contact, stepConfig, result);
+          } else {
+            results.failed.push(result);
+          }
+        } catch (err) {
+          logger.error(`Outreach failed for ${contact.name}: ${err.message}`);
+          results.failed.push({ contact: contact.name, error: err.message });
+        }
+      }
+    }
+
+    // ── Phase B: Simulate outreach for mock contacts ──────────
+    // Generate AI-personalized email content and log it — no SMTP call
+    for (const contact of mockContacts) {
       if (this._alreadyContactedAtStep(contact.id, step)) {
-        logger.debug(`Skipping ${contact.name} — already at step ${step}`);
         results.skipped.push({ contact: contact.name, reason: "already_contacted" });
         continue;
       }
-
       try {
-        const result = await this.sendToContact(contact, stepConfig);
-
-        if (result.sent) {
-          results.sent.push(result);
-          this._logOutreach(contact, stepConfig, result);
-        } else {
-          results.failed.push(result);
-        }
+        const simResult = await this.simulateOutreach(contact, stepConfig);
+        results.simulated.push(simResult);
+        this._logOutreach(contact, stepConfig, { ...simResult, sent: true });
       } catch (err) {
-        logger.error(`Outreach failed for ${contact.name}: ${err.message}`);
-        results.failed.push({ contact: contact.name, error: err.message });
+        logger.warn(`Simulation failed for ${contact.name}: ${err.message}`);
       }
     }
 
     this._saveLog();
 
-    logger.info(`Outreach complete: ${results.sent.length} sent, ${results.skipped.length} skipped, ${results.failed.length} failed`);
+    logger.info(`Outreach complete: ${results.sent.length} sent | ${results.simulated.length} simulated | ${results.skipped.length} skipped | ${results.failed.length} failed`);
     return results;
   }
+
+  /**
+   * Simulate outreach for mock contacts — generate AI content but skip SMTP.
+   * Logs as status="simulated" so it appears in Outreach Log / Sheets.
+   */
+  async simulateOutreach(contact, stepConfig) {
+    logger.info(`Simulating ${stepConfig.type} for ${contact.name} @ ${contact.company}`);
+
+    const variables = this._buildPersonalizationVariables(contact);
+    const template = outreachConfig.promptTemplates[stepConfig.templateId];
+    if (!template) throw new Error(`No template: ${stepConfig.templateId}`);
+
+    const { subject, body } = await llm.generateOutreachEmail(template, variables);
+    logger.info(`  [simulated] Subject: "${subject.slice(0, 60)}"`);
+
+    return {
+      sent: true,
+      simulated: true,
+      status: "simulated",
+      contactId: contact.id,
+      contactName: contact.name,
+      company: contact.company,
+      step: stepConfig.step,
+      type: stepConfig.type,
+      subject,
+      messageId: `sim-${Date.now()}-${contact.id?.slice(-6) || "mock"}`,
+      sentAt: new Date().toISOString(),
+    };
+  }
+
+
 
   /**
    * Generate and send personalized outreach to one contact
@@ -222,7 +259,8 @@ class OutreachAgent {
 
   _alreadyContactedAtStep(contactId, step) {
     return this.outreachLog.some(
-      (entry) => entry.contactId === contactId && entry.step === step && entry.status === "sent"
+      (entry) => entry.contactId === contactId && entry.step === step &&
+        (entry.status === "sent" || entry.status === "simulated")
     );
   }
 
@@ -235,7 +273,7 @@ class OutreachAgent {
       step: stepConfig.step,
       type: stepConfig.type,
       subject: result.subject || "",
-      status: result.sent ? "sent" : "failed",
+      status: result.status || (result.sent ? "sent" : "failed"),
       messageId: result.messageId || null,
       sentAt: new Date().toISOString(),
     });
