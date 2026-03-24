@@ -32,12 +32,22 @@ class OutreachAgent {
     logger.info(`=== OUTREACH AGENT STARTING ===`);
     logger.info(`Contacts: ${contacts.length}, Starting at step ${step}`);
 
-    // Split into real (Apollo-verified) and mock contacts
-    const realContacts = contacts.filter((c) => c.source !== "apollo_mock");
-    const mockContacts = contacts.filter((c) => c.source === "apollo_mock");
+    const forceSend = process.env.FORCE_SEND_MOCK_EMAILS === "true";
 
-    if (mockContacts.length > 0) {
-      logger.info(`📧 ${realContacts.length} real contacts (will send) | 🔵 ${mockContacts.length} mock contacts (will simulate — no SMTP)`);
+    // Split into real (Apollo-verified) and mock contacts
+    // When FORCE_SEND_MOCK_EMAILS=true, treat all contacts as real so emails go via SMTP
+    let realContacts, mockContacts;
+    if (forceSend) {
+      realContacts = contacts;
+      mockContacts = [];
+      logger.info(`🚀 FORCE_SEND_MOCK_EMAILS=true — sending all ${contacts.length} contacts via SMTP`);
+    } else {
+      realContacts = contacts.filter((c) => c.source !== "apollo_mock");
+      mockContacts = contacts.filter((c) => c.source === "apollo_mock");
+      if (mockContacts.length > 0) {
+        logger.info(`📧 ${realContacts.length} real contacts (will send) | 🔵 ${mockContacts.length} mock contacts (will simulate — no SMTP)`);
+        logger.info(`   💡 Set FORCE_SEND_MOCK_EMAILS=true in .env to send emails for all contacts`);
+      }
     }
 
     const stepConfig = this.sequence.find((s) => s.step === step);
@@ -154,8 +164,8 @@ class OutreachAgent {
       finalTemplate = this._getVariantTemplate(template);
     }
 
-    // Generate personalized email via LLM
-    const { subject, body } = await llm.generateOutreachEmail(finalTemplate, variables);
+    // Generate personalized email via LLM (returns subject, htmlBody, textBody)
+    const { subject, htmlBody, textBody } = await llm.generateOutreachEmail(finalTemplate, variables);
 
     logger.info(`  Subject: "${subject.slice(0, 60)}..."`);
 
@@ -164,7 +174,8 @@ class OutreachAgent {
       to: contact.email,
       toName: contact.name,
       subject,
-      body,
+      htmlBody,
+      textBody,
       contactId: contact.id,
       companyId: contact.companyId,
     });

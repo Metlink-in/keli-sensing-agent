@@ -53,7 +53,7 @@ class SmtpIntegration {
   /**
    * Send an outreach email
    */
-  async sendEmail({ to, toName, subject, body, contactId, companyId }) {
+  async sendEmail({ to, toName, subject, body, htmlBody, textBody, contactId, companyId }) {
     // Check daily limit
     if (this.sentToday >= DAILY_LIMIT) {
       logger.warn(`Daily email limit (${DAILY_LIMIT}) reached. Queuing for tomorrow.`);
@@ -66,12 +66,18 @@ class SmtpIntegration {
       return { sent: false, reason: "duplicate" };
     }
 
+    // Resolve HTML and text bodies
+    // Prefer explicitly provided htmlBody/textBody (new rich-email path)
+    // Fall back to legacy body → _textToHtml conversion
+    const finalHtml  = htmlBody  || this._textToHtml(body || "");
+    const finalText  = textBody  || body || "";
+
     const mailOptions = {
       from: `"${process.env.SMTP_FROM_NAME}" <${process.env.SMTP_FROM_EMAIL}>`,
       to: toName ? `"${toName}" <${to}>` : to,
       subject,
-      text: body,
-      html: this._textToHtml(body),
+      text: finalText,
+      html: finalHtml,
       headers: {
         "X-Campaign-ID": `keli-sensing-${Date.now()}`,
         "X-Contact-ID": contactId || "",

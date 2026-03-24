@@ -10,6 +10,7 @@ const logger = require("../utils/logger").forAgent("ScrapingAgent");
 const dedup = require("../utils/deduplication");
 const { sleep, sleepWithJitter, generateCompanyId, extractDomain } = require("../utils/helpers");
 const icpConfig = require("../config/icp.config");
+const llm = require("../integrations/OpenAILLM");
 
 class ScrapingAgent {
   constructor() {
@@ -48,9 +49,12 @@ class ScrapingAgent {
     // ICP qualification filter
     const qualified = this.filterByIcp(unique);
 
-    logger.info(`Scraping complete: ${allCompanies.length} raw → ${unique.length} unique → ${qualified.length} ICP-qualified`);
+    // Score each qualified company with ICP fit score via LLM
+    const scored = await this.scoreIcpCompanies(qualified);
 
-    this.discoveredCompanies = qualified.slice(0, this.maxCompanies);
+    logger.info(`Scraping complete: ${allCompanies.length} raw → ${unique.length} unique → ${scored.length} ICP-qualified`);
+
+    this.discoveredCompanies = scored.slice(0, this.maxCompanies);
     return this.discoveredCompanies;
   }
 
@@ -239,6 +243,40 @@ class ScrapingAgent {
 
       return segmentMatch && !disqualified;
     });
+  }
+
+  /**
+   * Score each ICP-qualified company via LLM and stamp icpScore on the record
+   * Falls back to a heuristic score if LLM is unavailable
+   */
+  async scoreIcpCompanies(companies) {
+    const scored = [];
+    for (const company of companies) {
+      try {
+        const description = [
+          company.description || `${company.name} is a robotics company`,
+          company.primarySegment || "",
+          (company.technologies || []).join(", "),
+        ].join(" ");
+
+        const icpResult = await llm.scoreIcpFit(description, {
+          segments: icpConfig.company.segments,
+          technologySignals: icpConfig.company.technologySignals || [],
+          disqualifiers: icpConfig.company.disqualifiers,
+        });
+
+        scored.push({
+          ...company,
+          icpScore: icpResult.score,
+          primarySegment: icpResult.primarySegment || company.primarySegment,
+        });
+      } catch (err) {
+        // Heuristic fallback: seed-list companies that passed filterByIcp() get 75
+        logger.warn(`ICP LLM scoring failed for ${company.name}: ${err.message} — using default score`);
+        scored.push({ ...company, icpScore: company.source === "seed_list" ? 75 : 60 });
+      }
+    }
+    return scored;
   }
 
   /**
