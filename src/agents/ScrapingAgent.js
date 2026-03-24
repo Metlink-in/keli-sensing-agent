@@ -298,9 +298,12 @@ class ScrapingAgent {
   }
 
   getStats() {
+    const dedupStats = dedup.getStats();
     return {
-      discovered: this.discoveredCompanies.length,
-      dedupStats: dedup.getStats(),
+      totalCompanies: this.discoveredCompanies.length,
+      qualifiedCompanies: this.discoveredCompanies.length,
+      discovered: this.discoveredCompanies.length,   // legacy alias
+      dedupStats,
     };
   }
 }

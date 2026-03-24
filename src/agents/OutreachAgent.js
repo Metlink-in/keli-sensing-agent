@@ -302,11 +302,23 @@ class OutreachAgent {
   }
 
   getStats() {
+    const sentOrSimulated = this.outreachLog.filter(
+      (e) => e.status === "sent" || e.status === "simulated"
+    ).length;
+    const totalResponses = this.outreachLog.filter(
+      (e) => e.status === "replied"
+    ).length;
+    const responseRate = sentOrSimulated > 0
+      ? Math.round((totalResponses / sentOrSimulated) * 100)
+      : 0;
+
     return {
-      totalSent: this.outreachLog.filter((e) => e.status === "sent").length,
+      totalSent: sentOrSimulated,      // includes simulated — used by dashboard
+      totalResponses,                  // used by dashboard
+      responseRate,                    // used by dashboard
       byStep: this.sequence.reduce((acc, s) => {
         acc[`step_${s.step}`] = this.outreachLog.filter(
-          (e) => e.step === s.step && e.status === "sent"
+          (e) => e.step === s.step && (e.status === "sent" || e.status === "simulated")
         ).length;
         return acc;
       }, {}),

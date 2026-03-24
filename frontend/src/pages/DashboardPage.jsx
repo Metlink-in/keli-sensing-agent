@@ -29,10 +29,18 @@ function AnimatedNumber({ value, suffix = "" }) {
   return <span>{display.toLocaleString()}{suffix}</span>;
 }
 
+// Helper — supports both old field names and new
+const s_companies   = (s) => s?.scraping?.totalCompanies   ?? s?.scraping?.discovered          ?? 0;
+const s_contacts    = (s) => s?.enrichment?.totalContacts  ?? s?.enrichment?.enrichedContacts   ?? 0;
+const s_qualified   = (s) => s?.scraping?.qualifiedCompanies ?? s?.scraping?.discovered         ?? 0;
+const s_highPri     = (s) => s?.scoring?.highPriority      ?? s?.scoring?.high                  ?? 0;
+const s_medPri      = (s) => s?.scoring?.mediumPriority    ?? s?.scoring?.medium                ?? 0;
+const s_lowPri      = (s) => s?.scoring?.lowPriority       ?? s?.scoring?.low                   ?? 0;
+
 const STAT_CARDS = (stats) => [
   {
     label: "Companies Found",
-    value: stats?.scraping?.totalCompanies ?? 0,
+    value: s_companies(stats),
     icon: Building2,
     color: "from-brand-500 to-brand-600",
     glow: "shadow-glow",
@@ -40,7 +48,7 @@ const STAT_CARDS = (stats) => [
   },
   {
     label: "Contacts Enriched",
-    value: stats?.enrichment?.totalContacts ?? 0,
+    value: s_contacts(stats),
     icon: Users,
     color: "from-accent-cyan to-teal-500",
     glow: "shadow-glow-cyan",
@@ -73,7 +81,7 @@ const STAT_CARDS = (stats) => [
   },
   {
     label: "HIGH Priority Leads",
-    value: stats?.scoring?.highPriority ?? 0,
+    value: s_highPri(stats),
     icon: Star,
     color: "from-amber-400 to-orange-500",
     glow: "",
@@ -114,16 +122,16 @@ export default function DashboardPage() {
   const cards = STAT_CARDS(stats);
 
   const priorityData = [
-    { name: "HIGH",   value: stats?.scoring?.highPriority ?? 0 },
-    { name: "MEDIUM", value: stats?.scoring?.mediumPriority ?? 0 },
-    { name: "LOW",    value: stats?.scoring?.lowPriority ?? 0 },
+    { name: "HIGH",   value: s_highPri(stats) },
+    { name: "MEDIUM", value: s_medPri(stats) },
+    { name: "LOW",    value: s_lowPri(stats) },
   ];
 
   const areaData = [
-    { name: "Scrape", companies: stats?.scraping?.totalCompanies ?? 0 },
-    { name: "Enrich", contacts: stats?.enrichment?.totalContacts ?? 0 },
+    { name: "Scrape",   companies: s_companies(stats) },
+    { name: "Enrich",   contacts:  s_contacts(stats) },
     { name: "Outreach", sent: stats?.outreach?.totalSent ?? 0, responses: stats?.outreach?.totalResponses ?? 0 },
-    { name: "Score", high: stats?.scoring?.highPriority ?? 0, medium: stats?.scoring?.mediumPriority ?? 0 },
+    { name: "Score",    high: s_highPri(stats), medium: s_medPri(stats) },
   ];
 
   return (
@@ -245,12 +253,12 @@ export default function DashboardPage() {
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
-            { phase: "Scrape",   val: stats?.scraping?.totalCompanies,  unit: "companies", color: "bg-brand-500" },
-            { phase: "Enrich",   val: stats?.enrichment?.totalContacts, unit: "contacts",  color: "bg-accent-cyan" },
-            { phase: "Qualify",  val: stats?.scraping?.qualifiedCompanies, unit: "qualified", color: "bg-violet-500" },
-            { phase: "Outreach", val: stats?.outreach?.totalSent,       unit: "sent",      color: "bg-accent-green" },
-            { phase: "Score",    val: (stats?.scoring?.highPriority ?? 0) + (stats?.scoring?.mediumPriority ?? 0), unit: "scored", color: "bg-amber-500" },
-            { phase: "Report",   val: stats?.outreach?.totalResponses,  unit: "responses", color: "bg-accent-orange" },
+            { phase: "Scrape",   val: s_companies(stats) || "—",  unit: "companies", color: "bg-brand-500" },
+            { phase: "Enrich",   val: s_contacts(stats) || "—",   unit: "contacts",  color: "bg-accent-cyan" },
+            { phase: "Qualify",  val: s_qualified(stats) || "—",  unit: "qualified", color: "bg-violet-500" },
+            { phase: "Outreach", val: stats?.outreach?.totalSent ?? "—", unit: "sent", color: "bg-accent-green" },
+            { phase: "Score",    val: s_highPri(stats) + s_medPri(stats) || "—", unit: "scored", color: "bg-amber-500" },
+            { phase: "Report",   val: stats?.outreach?.totalResponses ?? "—", unit: "responses", color: "bg-accent-orange" },
           ].map(({ phase, val, unit, color }) => (
             <div key={phase} className="text-center p-3 rounded-xl bg-slate-50 dark:bg-gray-800/60">
               <div className={`w-2 h-2 rounded-full ${color} mx-auto mb-2`} />

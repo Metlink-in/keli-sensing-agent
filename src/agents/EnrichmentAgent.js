@@ -249,8 +249,9 @@ class EnrichmentAgent {
 
   getStats() {
     return {
+      totalContacts: this.enrichedContacts.length,       // used by dashboard
       enrichedCompanies: this.enrichedCompanies.length,
-      enrichedContacts: this.enrichedContacts.length,
+      enrichedContacts: this.enrichedContacts.length,    // legacy alias
       contactsWithEmail: this.enrichedContacts.filter((c) => c.email).length,
       contactsWithPhone: this.enrichedContacts.filter((c) => c.phone).length,
     };

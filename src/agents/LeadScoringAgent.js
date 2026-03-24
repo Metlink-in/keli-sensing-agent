@@ -307,7 +307,16 @@ class LeadScoringAgent {
       ? Math.round(this.scoredLeads.reduce((a, b) => a + b.totalScore, 0) / this.scoredLeads.length)
       : 0;
 
-    return { total: this.scoredLeads.length, high, medium: med, low, avgScore };
+    return {
+      total: this.scoredLeads.length,
+      highPriority: high,   // used by dashboard
+      mediumPriority: med,  // used by dashboard
+      lowPriority: low,     // used by dashboard
+      high,                 // legacy alias
+      medium: med,          // legacy alias
+      low,                  // legacy alias
+      avgScore,
+    };
   }
 }
 
