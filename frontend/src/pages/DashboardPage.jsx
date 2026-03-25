@@ -9,7 +9,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
-import { getStats } from "../api";
+import { getStats, BASE } from "../api";
 
 function AnimatedNumber({ value, suffix = "" }) {
   const [display, setDisplay] = useState(0);
@@ -111,7 +111,7 @@ export default function DashboardPage() {
       const { data } = await getStats();
       setStats(data.stats);
     } catch (e) {
-      setError("Could not reach server. Is the backend running on port 3001?");
+      setError(`Could not reach ${BASE}. Please ensure the backend is running and accessible.`);
     } finally {
       setLoading(false);
     }

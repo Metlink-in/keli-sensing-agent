@@ -1,6 +1,9 @@
 import axios from "axios";
 
-const BASE = import.meta.env.VITE_API_URL || "/api";
+const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+const DEFAULT_LOCAL = "http://localhost:3001/api";
+
+export const BASE = import.meta.env.VITE_API_URL || (isLocal ? DEFAULT_LOCAL : "/api");
 
 const api = axios.create({ baseURL: BASE, timeout: 300000 });
 

@@ -521,7 +521,16 @@ app.post("/api/schedule", (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  logger.info(`\n🚀 Keli Sensing API Server running on port ${PORT}`);
-  logger.info(`Dashboard API ready at http://localhost:${PORT}`);
-});
+// Export for Vercel / serverless environments
+module.exports = app;
+
+// Only listen if not in a serverless environment or if explicitly running as a standalone server
+if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
+  const server = app.listen(PORT, "0.0.0.0", () => {
+    logger.info(`\n🚀 Keli Sensing API Server running on port ${PORT}`);
+    logger.info(`Dashboard API ready at http://0.0.0.0:${PORT}`);
+  });
+  
+  // Increase timeout for long-running pipeline phases (10 minutes)
+  server.timeout = 600000;
+}
