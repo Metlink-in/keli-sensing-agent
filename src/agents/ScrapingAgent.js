@@ -11,6 +11,7 @@ const dedup = require("../utils/deduplication");
 const { sleep, sleepWithJitter, generateCompanyId, extractDomain } = require("../utils/helpers");
 const icpConfig = require("../config/icp.config");
 const llm = require("../integrations/OpenAILLM");
+const apollo = require("../integrations/ApolloIntegration");
 
 class ScrapingAgent {
   constructor() {
@@ -31,15 +32,11 @@ class ScrapingAgent {
 
     const allCompanies = [];
 
-    // Source 1: Scrape known robotics company lists
-    const fromRoboticsDb = await this.scrapeRoboticsDatabase();
-    allCompanies.push(...fromRoboticsDb);
+    // Source 1: Scrape from Apollo API
+    const fromApollo = await this.scrapeFromApollo();
+    allCompanies.push(...fromApollo);
 
-    // Source 2: Scrape industry news sites for company mentions
-    const fromNewsSignals = await this.scrapeIndustrySignals();
-    allCompanies.push(...fromNewsSignals);
-
-    // Source 3: Build from known companies seed list
+    // Source 2: Build from known companies seed list
     const fromSeedList = await this.loadSeedCompanies();
     allCompanies.push(...fromSeedList);
 
@@ -59,113 +56,31 @@ class ScrapingAgent {
   }
 
   /**
-   * Scrape robotics company data from public industry pages
+   * Scrape companies from Apollo API
    */
-  async scrapeRoboticsDatabase() {
-    logger.info("Scraping robotics company directories...");
-    const companies = [];
-
-    // Scrape from Tracxn-style public pages
-    const sources = [
-      {
-        name: "TechCrunch Robotics",
-        url: "https://techcrunch.com/tag/robotics/",
-        parser: this._parseTechCrunch.bind(this),
-      },
-      {
-        name: "The Robot Report Directory",
-        url: "https://www.therobotreport.com/news/",
-        parser: this._parseRobotReport.bind(this),
-      },
-    ];
-
-    for (const source of sources) {
-      try {
-        logger.info(`Fetching: ${source.name}`);
-        const html = await this._fetchPage(source.url);
-        if (html) {
-          const parsed = source.parser(html, source.url);
-          companies.push(...parsed);
-          logger.info(`  → ${parsed.length} companies from ${source.name}`);
-        }
-        await sleepWithJitter(this.delayMs);
-      } catch (err) {
-        logger.warn(`Failed to scrape ${source.name}: ${err.message}`);
-      }
+  async scrapeFromApollo() {
+    logger.info("Scraping robotics companies from Apollo...");
+    try {
+      // Use ICP segments as keywords for Apollo search
+      const keywords = icpConfig.company.segments || ["robotics", "automation"];
+      const apolloOrgs = await apollo.searchCompanies(keywords);
+      
+      return apolloOrgs.map(org => ({
+        ...this._createCompanyRecord(org.name, {
+          website: org.website,
+          employeeCount: org.employeeCount,
+          revenue: org.revenue,
+          primarySegment: org.subIndustry || org.industry,
+          description: org.description,
+          technologies: org.technologies,
+          source: "apollo",
+        }),
+        domain: org.domain || (org.website ? extractDomain(org.website) : null),
+      }));
+    } catch (err) {
+      logger.warn(`Failed to scrape from Apollo: ${err.message}`);
+      return [];
     }
-
-    return companies;
-  }
-
-  /**
-   * Parse TechCrunch robotics pages for company signals
-   */
-  _parseTechCrunch(html, sourceUrl) {
-    const $ = cheerio.load(html);
-    const companies = [];
-
-    $("article").each((_, el) => {
-      const title = $(el).find("h2, h3").first().text().trim();
-      const description = $(el).find("p").first().text().trim();
-      const link = $(el).find("a").first().attr("href");
-
-      if (!title) return;
-
-      // Extract company names from article titles (pattern: "Company X raises...")
-      const companyMatch = title.match(/^([A-Z][a-zA-Z\s]+?)\s+(raises|launches|announces|closes|secures|acquires)/);
-      if (companyMatch) {
-        const companyName = companyMatch[1].trim();
-        if (this._isRoboticsRelated(title + " " + description)) {
-          companies.push(this._createCompanyRecord(companyName, {
-            description: description.slice(0, 300),
-            source: "techcrunch",
-            articleUrl: link,
-          }));
-        }
-      }
-    });
-
-    return companies;
-  }
-
-  /**
-   * Parse The Robot Report for companies
-   */
-  _parseRobotReport(html, sourceUrl) {
-    const $ = cheerio.load(html);
-    const companies = [];
-
-    $("article, .post").each((_, el) => {
-      const title = $(el).find("h2, h3, .title").first().text().trim();
-      const description = $(el).find("p").first().text().trim();
-
-      if (!title || title.length < 5) return;
-
-      // Extract company name from title
-      const words = title.split(" ");
-      if (words.length >= 2 && this._isRoboticsRelated(title + " " + description)) {
-        // Use first 2-3 words as potential company name
-        const possibleName = words.slice(0, 3).join(" ").replace(/[^a-zA-Z\s]/g, "").trim();
-        if (possibleName.length > 3) {
-          companies.push(this._createCompanyRecord(possibleName, {
-            description: description.slice(0, 300),
-            source: "therobotreport",
-          }));
-        }
-      }
-    });
-
-    return companies;
-  }
-
-  /**
-   * Scrape signals from industry news
-   */
-  async scrapeIndustrySignals() {
-    logger.info("Scanning industry news for robotics company signals...");
-    // In production, this would scrape news APIs, press release sites, etc.
-    // Returning seed data as base
-    return [];
   }
 
   /**

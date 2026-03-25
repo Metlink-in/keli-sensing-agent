@@ -135,6 +135,51 @@ class ApolloIntegration {
   }
 
   /**
+   * Search for companies by keyword
+   * @param {string[]} keywords
+   */
+  async searchCompanies(keywords = ["robotics", "automation", "manufacturing"]) {
+    if (!this.apiKey || this.apiKey.length < 10) {
+      return Object.keys(this._getKnownContacts()).slice(0, 10).map(domain => this._mockCompany(domain));
+    }
+
+    try {
+      await sleepWithJitter(500);
+      const response = await this.client.post("/mixed_companies/search", {
+        api_key: this.apiKey,
+        q_organization_keyword_tags: keywords,
+        page: 1,
+        per_page: 25,
+      }, { headers: this._headers() });
+
+      const organizations = response.data?.organizations || response.data?.accounts || [];
+      logger.info(`Apollo found ${organizations.length} companies for keywords: ${keywords.join(",")}`);
+
+      return organizations.map((org) => ({
+        name: org.name,
+        domain: org.primary_domain,
+        website: org.website_url || `https://${org.primary_domain}`,
+        industry: org.industry,
+        subIndustry: org.sub_industry,
+        employeeCount: org.estimated_num_employees,
+        revenueRange: org.annual_revenue_printed,
+        revenue: org.annual_revenue,
+        founded: org.founded_year,
+        description: org.short_description || org.seo_description,
+        headquarters: `${org.city || ""}, ${org.country || ""}`.trim(),
+        linkedinUrl: org.linkedin_url,
+        technologies: Array.isArray(org.technologies) ? org.technologies.map(t => t.name || t) : [],
+        keywords: org.keywords || [],
+        funding: org.total_funding_printed,
+        source: "apollo",
+      }));
+    } catch (err) {
+      logger.warn(`Apollo company search failed: ${err.message} — using mock data`);
+      return Object.keys(this._getKnownContacts()).slice(0, 10).map(domain => this._mockCompany(domain));
+    }
+  }
+
+  /**
    * Map raw Apollo person to our schema
    */
   _mapPerson(p) {

@@ -125,11 +125,8 @@ class EnrichmentAgent {
 
 
 
-    // Email guessing fallback if no emails found
-    const contactsWithEmails = await this.fillMissingEmails(contacts, company.domain);
-
     // Assign priority based on role
-    const prioritized = this.prioritizeContacts(contactsWithEmails);
+    const prioritized = this.prioritizeContacts(contacts);
 
     // Limit per company
     const limited = prioritized.slice(0, MAX_CONTACTS_PER_COMPANY);
@@ -141,44 +138,6 @@ class EnrichmentAgent {
     }));
   }
 
-  /**
-   * For contacts missing emails, guess formats and validate
-   */
-  async fillMissingEmails(contacts, domain) {
-    if (!domain) return contacts;
-
-    const result = [];
-    for (const contact of contacts) {
-      if (contact.email) {
-        result.push(contact);
-        continue;
-      }
-
-      // Guess email patterns
-      if (contact.firstName && contact.lastName) {
-        const guesses = emailValidator.guessEmails(
-          contact.firstName,
-          contact.lastName,
-          domain
-        );
-
-        // Validate first 3 guesses
-        for (const guess of guesses.slice(0, 3)) {
-          const validation = await emailValidator.validate(guess);
-          if (validation.valid && validation.confidence >= 70) {
-            contact.email = guess;
-            contact.emailStatus = "guessed";
-            contact.emailConfidence = validation.confidence;
-            break;
-          }
-          await sleepWithJitter(200);
-        }
-      }
-
-      result.push(contact);
-    }
-    return result;
-  }
 
   /**
    * Score and prioritize contacts by role seniority
