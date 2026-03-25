@@ -11,7 +11,7 @@
     "score": "node src/index.js --phase=score",
     "report": "node src/index.js --phase=report",
     "full-pipeline": "node src/index.js --phase=all",
-    "reset": "rm -f data/seen_companies.json data/seen_contacts.json",
+    "reset": "rm -f data/seen_*.json data/outreach_log.json data/sent_emails.json data/lead_scores.json",
     "dev": "node src/server.js"
   },
   "dependencies": {

@@ -271,7 +271,7 @@ class OutreachAgent {
   _alreadyContactedAtStep(contactId, step) {
     return this.outreachLog.some(
       (entry) => entry.contactId === contactId && entry.step === step &&
-        (entry.status === "sent" || entry.status === "simulated")
+        entry.status === "sent"
     );
   }
 

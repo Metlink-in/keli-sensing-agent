@@ -18,8 +18,9 @@ class ApolloIntegration {
       headers: {
         "Content-Type": "application/json",
         "Cache-Control": "no-cache",
+        "X-Api-Key": this.apiKey,
       },
-      timeout: 15000,
+      timeout: 60000,
     });
 
     // Log a clear warning if no API key is configured
@@ -46,28 +47,46 @@ class ApolloIntegration {
 
     try {
       const response = await this.client.post(
-        "/mixed_people/search",
+        "/mixed_people/api_search",
         {
-          api_key: this.apiKey,
           q_organization_domains: companyDomain,
           person_titles: titles,
           page: 1,
           per_page: 10,
-        },
-        { headers: this._headers() }
+        }
       );
 
-      const people = response.data?.people || [];
-      logger.info(`Apollo found ${people.length} people at ${companyDomain}`);
+      const peopleRefs = response.data?.people || [];
+      logger.info(`Apollo found ${peopleRefs.length} people at ${companyDomain}`);
 
-      if (people.length === 0) {
+      if (peopleRefs.length === 0) {
         logger.warn(`Apollo returned 0 results for ${companyDomain} — using mock data`);
         return this._mockContacts(companyDomain);
       }
 
-      return people.map((p) => this._mapPerson(p));
+      // Step 2: Unlock true data using people/match
+      const unlockedPeople = [];
+      for (const p of peopleRefs) {
+        try {
+          await sleepWithJitter(500);
+          const matchRes = await this.client.post("/people/match", {
+            id: p.id,
+            reveal_personal_emails: true,
+          });
+          if (matchRes.data?.person) {
+            unlockedPeople.push(matchRes.data.person);
+          }
+        } catch (matchErr) {
+          logger.warn(`Failed to unlock person ${p.id}: ${matchErr.message}`);
+        }
+      }
+
+      return unlockedPeople.map((p) => this._mapPerson(p));
     } catch (err) {
       logger.warn(`Apollo API failed for ${companyDomain}: ${err.message} — using mock data`);
+      if (err.response) {
+        console.error("APOLLO 422 PAYLOAD ERROR:", err.response.data);
+      }
       return this._mockContacts(companyDomain);
     }
   }
@@ -81,10 +100,8 @@ class ApolloIntegration {
     return retry(async () => {
       await sleepWithJitter(500);
       const response = await this.client.post("/people/match", {
-        api_key: this.apiKey,
         email,
-        reveal_personal_emails: false,
-        reveal_phone_number: true,
+        reveal_personal_emails: true,
       });
 
       const person = response.data?.person;
@@ -103,9 +120,8 @@ class ApolloIntegration {
     try {
       await sleepWithJitter(500);
       const response = await this.client.post("/organizations/enrich", {
-        api_key: this.apiKey,
         domain,
-      }, { headers: this._headers() });
+      });
 
       const org = response.data?.organization;
       if (!org) return this._mockCompany(domain);
@@ -145,14 +161,13 @@ class ApolloIntegration {
 
     try {
       await sleepWithJitter(500);
-      const response = await this.client.post("/mixed_companies/search", {
-        api_key: this.apiKey,
+      const response = await this.client.post("/organizations/search", {
         q_organization_keyword_tags: keywords,
         page: 1,
         per_page: 25,
-      }, { headers: this._headers() });
+      });
 
-      const organizations = response.data?.organizations || response.data?.accounts || [];
+      const organizations = response.data?.organizations || [];
       logger.info(`Apollo found ${organizations.length} companies for keywords: ${keywords.join(",")}`);
 
       return organizations.map((org) => ({
