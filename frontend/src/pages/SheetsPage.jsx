@@ -30,18 +30,37 @@ function exportXLSX(headers, rows, sheetName, filename) {
 }
 
 function exportPDF(headers, rows, title, filename) {
-  const doc = new jsPDF({ orientation: headers.length > 6 ? "landscape" : "portrait" });
+  // Truncate extremely long strings to prevent column squishing
+  const safeRows = rows.map(row => 
+    row.map(cell => {
+      const str = String(cell ?? "");
+      return str.length > 80 ? str.slice(0, 77) + "..." : str;
+    })
+  );
+
+  // Use a3 landscape for wide tables to give more breathing room
+  const doc = new jsPDF({ 
+    orientation: headers.length > 5 ? "landscape" : "portrait",
+    format: headers.length > 8 ? "a3" : "a4"
+  });
+  
   doc.setFontSize(14);
   doc.text(title, 14, 16);
   doc.setFontSize(9);
   doc.setTextColor(100);
   doc.text(`Exported ${new Date().toLocaleString()}`, 14, 22);
+  
   autoTable(doc, {
     head: [headers],
-    body: rows,
+    body: safeRows,
     startY: 26,
-    styles: { fontSize: 7, cellPadding: 2 },
-    headStyles: { fillColor: [99, 102, 241] },
+    styles: { 
+      fontSize: 6, 
+      cellPadding: 1.5,
+      overflow: 'linebreak',
+      valign: 'top'
+    },
+    headStyles: { fillColor: [99, 102, 241], fontStyle: "bold" },
     alternateRowStyles: { fillColor: [248, 250, 252] },
   });
   doc.save(filename);
