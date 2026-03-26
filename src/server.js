@@ -120,15 +120,26 @@ app.post("/api/pipeline/all", async (req, res) => {
 
 /**
  * Phase 2: Scraping
+ * Accepts optional body: { limit, icpConfig, cadence }
  */
 app.post("/api/pipeline/scrape", async (req, res) => {
   logger.info("API Request: Scraping Phase");
   try {
-    const companies = await pipeline.runScraping();
+    const companies = await pipeline.runScraping(req.body);
+    // Auto-create a dated scrape-run tab in Google Sheets
+    let runTabName = null;
+    try {
+      const sheets = require("./integrations/GoogleSheetsIntegration");
+      if (!sheets.initialized) await sheets.init();
+      runTabName = await sheets.createScrapeRunTab(companies || []);
+    } catch (sheetErr) {
+      logger.warn(`Could not create scrape run tab: ${sheetErr.message}`);
+    }
     res.json({ 
       success: true, 
       message: "Scraping completed", 
-      companiesDiscovered: companies.length 
+      companiesDiscovered: (companies || []).length,
+      runTabName,
     });
   } catch (err) {
     logger.error(`Scraping failed: ${err.message}`);
@@ -153,6 +164,59 @@ app.post("/api/pipeline/enrich", async (req, res) => {
     });
   } catch (err) {
     logger.error(`Enrichment failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Phase 4: Outreach Preview
+ * Generates 3 sample emails without sending them.
+ * Body: { targetList, roles }
+ */
+app.post("/api/pipeline/outreach/preview", async (req, res) => {
+  logger.info("API Request: Outreach Preview");
+  try {
+    // Pull a few contacts from the Contacts sheet to preview
+    const sheets = require("./integrations/GoogleSheetsIntegration");
+    if (!sheets.initialized) await sheets.init();
+    const contactData = await sheets.getScrapeRunData("Contacts").catch(() => ({ headers: [], rows: [] }));
+
+    // Try to get real contact rows, otherwise use placeholders
+    const sampleContacts = (contactData.rows || []).slice(0, 3);
+    const icpPath = path.join(__dirname, "config/icp.config.js");
+    delete require.cache[require.resolve(icpPath)];
+    const icp = require(icpPath);
+
+    const companyName = icp?.valueProposition?.company || "your company";
+    const tagline = icp?.valueProposition?.tagline || "helping businesses grow";
+    const senderName = "The Keli Sensing Team";
+    const signatureHtml = `<br><br>Best regards,<br><b>${senderName}</b><br>${companyName}<br><a href="${icp?.valueProposition?.website || '#'}">${icp?.valueProposition?.website || ''}</a>`;
+
+    const previews = sampleContacts.length > 0
+      ? sampleContacts.map((row, i) => ({
+          id: `preview_${i}`,
+          to: row[5] || `contact${i + 1}@example.com`,
+          toName: row[1] || `Contact ${i + 1}`,
+          company: row[9] || "Their Company",
+          subject: `${companyName} — Quick Question for ${row[1] || 'You'}`,
+          body: `Hi ${row[2] || row[1] || 'there'},\n\nI came across ${row[9] || 'your company'} and was impressed by your work. At ${companyName}, we specialize in ${tagline}.\n\nI'd love to explore whether there's a fit — would you be open to a quick 15-minute call this week?\n\nLooking forward to hearing from you.`,
+          signature: signatureHtml,
+          approved: null,
+        }))
+      : [0, 1, 2].map((i) => ({
+          id: `preview_${i}`,
+          to: `lead${i + 1}@example.com`,
+          toName: `Lead ${i + 1}`,
+          company: `Example Corp ${i + 1}`,
+          subject: `${companyName} — Reaching Out`,
+          body: `Hi Lead ${i + 1},\n\nI came across Example Corp ${i + 1} and thought there could be a great fit with ${companyName}.\n\nWe specialize in ${tagline}, and I'd love to share more.\n\nWould you be open to a quick call?`,
+          signature: signatureHtml,
+          approved: null,
+        }));
+
+    res.json({ success: true, previews });
+  } catch (err) {
+    logger.error(`Outreach preview failed: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });
@@ -436,6 +500,42 @@ app.delete("/api/sheets/clear", async (req, res) => {
     res.json({ success: true, deleted: totalRows - 1 });
   } catch (err) {
     logger.error(`Clear sheet failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/sheets/runs — List all scrape run history tabs
+ */
+app.get("/api/sheets/runs", async (req, res) => {
+  try {
+    const sheets = require("./integrations/GoogleSheetsIntegration");
+    if (!sheets.initialized) await sheets.init();
+    if (sheets.dryRun || !sheets.sheets) {
+      return res.status(503).json({ error: "Google Sheets not configured" });
+    }
+    const runs = await sheets.listScrapeRuns();
+    res.json({ runs });
+  } catch (err) {
+    logger.error(`List scrape runs failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/sheets/runs/:tabName — Get data for a specific scrape run tab
+ */
+app.get("/api/sheets/runs/:tabName", async (req, res) => {
+  try {
+    const sheets = require("./integrations/GoogleSheetsIntegration");
+    if (!sheets.initialized) await sheets.init();
+    if (sheets.dryRun || !sheets.sheets) {
+      return res.status(503).json({ error: "Google Sheets not configured" });
+    }
+    const data = await sheets.getScrapeRunData(req.params.tabName);
+    res.json(data);
+  } catch (err) {
+    logger.error(`Get scrape run data failed: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });

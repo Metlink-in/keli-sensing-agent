@@ -12,9 +12,10 @@ export const getStats       = ()         => api.get("/stats");
 
 // --- Pipeline ---
 export const runFull        = ()         => api.post("/pipeline/all");
-export const runScrape      = ()         => api.post("/pipeline/scrape");
-export const runEnrich      = ()         => api.post("/pipeline/enrich");
-export const runOutreach    = (step = 1) => api.post("/pipeline/outreach", { step });
+export const runScrape      = (cfg = {}) => api.post("/pipeline/scrape", cfg);
+export const runEnrich      = (cfg = {}) => api.post("/pipeline/enrich", cfg);
+export const runOutreach    = (step = 1, approved = []) => api.post("/pipeline/outreach", { step, approved });
+export const previewOutreach = (cfg = {}) => api.post("/pipeline/outreach/preview", cfg);
 export const runScore       = ()         => api.post("/pipeline/score");
 export const runReport      = ()         => api.post("/pipeline/report");
 export const processReply   = (data)     => api.post("/pipeline/reply", data);
@@ -32,9 +33,11 @@ export const saveEnv        = (data)     => api.post("/env", data);
 export const getLogs        = ()         => api.get("/logs");
 
 // --- Sheets ---
-export const getSheetsData  = ()                          => api.get("/sheets/data");
-export const deleteSheetRow = (sheet, rowIndex)           => api.delete("/sheets/row", { data: { sheet, rowIndex } });
-export const clearSheet     = (sheet)                     => api.delete("/sheets/clear", { data: { sheet } });
+export const getSheetsData   = ()                          => api.get("/sheets/data");
+export const deleteSheetRow  = (sheet, rowIndex)           => api.delete("/sheets/row", { data: { sheet, rowIndex } });
+export const clearSheet      = (sheet)                     => api.delete("/sheets/clear", { data: { sheet } });
+export const listScrapeRuns  = ()                          => api.get("/sheets/runs");
+export const getScrapeRunData = (tabName)                  => api.get(`/sheets/runs/${encodeURIComponent(tabName)}`);
 
 // --- Scheduler ---
 export const getSchedules   = ()         => api.get("/schedule");

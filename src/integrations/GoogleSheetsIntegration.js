@@ -19,6 +19,10 @@ const SHEETS = {
   DASHBOARD: "Dashboard",
 };
 
+// Prefix used to identify scrape-run history tabs
+const SCRAPE_RUN_PREFIX = "Scrape ";
+
+
 // Column headers per sheet
 const HEADERS = {
   [SHEETS.COMPANIES]: [
@@ -160,6 +164,124 @@ class GoogleSheetsIntegration {
     ];
     return this._appendRows(SHEETS.RESPONSES, [row]);
   }
+
+  // ── Scrape Run History ──────────────────────────────────────
+
+  /**
+   * Build the tab name for a scrape run.
+   * Format: "Scrape 03/26/26 · Keli Sensing"
+   */
+  _scrapeRunTabName(date = new Date()) {
+    const mm = String(date.getMonth() + 1).padStart(2, "0");
+    const dd = String(date.getDate()).padStart(2, "0");
+    const yy = String(date.getFullYear()).slice(-2);
+    return `${SCRAPE_RUN_PREFIX}${mm}/${dd}/${yy} · Keli Sensing`;
+  }
+
+  /**
+   * Create a new dated scrape-run tab and write companies into it.
+   * Returns the tab name.
+   */
+  async createScrapeRunTab(companies) {
+    if (this.dryRun || !this.sheets) {
+      logger.info(`[DRY RUN] Would create scrape run tab with ${companies.length} companies`);
+      return null;
+    }
+
+    const tabName = this._scrapeRunTabName();
+
+    try {
+      // Create the new sheet tab
+      await this.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: this.spreadsheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: tabName } } }],
+        },
+      });
+
+      // Headers for the run tab (same as Companies)
+      const headers = [
+        "ID", "Name", "Domain", "Website", "Industry", "Sub-Industry",
+        "Employees", "Revenue", "Headquarters", "Description", "Technologies",
+        "ICP Score", "Primary Segment", "LinkedIn", "Source", "Discovered At",
+      ];
+
+      await this.sheets.spreadsheets.values.update({
+        spreadsheetId: this.spreadsheetId,
+        range: `'${tabName}'!A1`,
+        valueInputOption: "RAW",
+        requestBody: { values: [headers] },
+      });
+
+      const rows = companies.map((c) => [
+        c.id, c.name, c.domain, c.website, c.industry, c.subIndustry || "",
+        c.employeeCount || "", c.revenueRange || "", c.headquarters || "",
+        (c.description || "").slice(0, 500),
+        (c.technologies || []).join(", "),
+        c.icpScore || "", c.primarySegment || "",
+        c.linkedinUrl || "", c.source || "", c.discoveredAt || new Date().toISOString(),
+      ]);
+
+      if (rows.length > 0) {
+        await this.sheets.spreadsheets.values.append({
+          spreadsheetId: this.spreadsheetId,
+          range: `'${tabName}'!A:Z`,
+          valueInputOption: "USER_ENTERED",
+          insertDataOption: "INSERT_ROWS",
+          requestBody: { values: rows },
+        });
+      }
+
+      logger.info(`Created scrape run tab "${tabName}" with ${rows.length} companies`);
+      return tabName;
+    } catch (err) {
+      logger.error(`Failed to create scrape run tab: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * List all scrape-run history tabs (sorted newest first).
+   * Returns: [{ tabName, date }]
+   */
+  async listScrapeRuns() {
+    if (this.dryRun || !this.sheets) return [];
+    try {
+      const meta = await this.sheets.spreadsheets.get({
+        spreadsheetId: this.spreadsheetId,
+      });
+      const runs = meta.data.sheets
+        .map((s) => s.properties.title)
+        .filter((t) => t.startsWith(SCRAPE_RUN_PREFIX))
+        .reverse(); // newest last in Sheets = first here after reverse
+      return runs.map((tabName) => ({ tabName }));
+    } catch (err) {
+      logger.error(`Failed to list scrape runs: ${err.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch data from a specific scrape-run tab.
+   * Returns { headers, rows }
+   */
+  async getScrapeRunData(tabName) {
+    if (this.dryRun || !this.sheets) return { headers: [], rows: [] };
+    try {
+      const response = await this.sheets.spreadsheets.values.get({
+        spreadsheetId: this.spreadsheetId,
+        range: `'${tabName}'!A:Z`,
+      });
+      const all = response.data.values || [];
+      const [headers, ...rows] = all;
+      return { headers: headers || [], rows: rows || [] };
+    } catch (err) {
+      logger.error(`Failed to get scrape run data for "${tabName}": ${err.message}`);
+      return { headers: [], rows: [] };
+    }
+  }
+
+  // ── Lead Scores ─────────────────────────────────────────────
 
   /**
    * Sync lead scores — clears sheet first so 1 row per company, no duplicates
