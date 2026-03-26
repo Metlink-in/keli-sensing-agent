@@ -129,17 +129,9 @@ export default function SheetsPage() {
   const [runData, setRunData] = useState(null);
   const [runDataLoading, setRunDataLoading] = useState(false);
   const [runSearch, setRunSearch] = useState("");
-  const [sheetUrl, setSheetUrl] = useState(import.meta.env.VITE_GOOGLE_SHEET_URL || "");
-
-  const fetchEnv = useCallback(async () => {
-    try {
-      const { getEnv } = await import("../api");
-      const res = await getEnv();
-      if (res.data?.VITE_GOOGLE_SHEET_URL || res.data?.GOOGLE_SHEETS_SPREADSHEET_ID) {
-        setSheetUrl(res.data.VITE_GOOGLE_SHEET_URL || `https://docs.google.com/spreadsheets/d/${res.data.GOOGLE_SHEETS_SPREADSHEET_ID}/edit`);
-      }
-    } catch (e) { }
-  }, []);
+  
+  // Use direct Google Sheets link as requested
+  const sheetUrl = "https://docs.google.com/spreadsheets/d/1MfJDucezc_N5LqGTcnNsPqamtXo3cPSj66QqlRGC1sI/edit";
 
   const fetchSheets = useCallback(async () => {
     try {
@@ -168,8 +160,7 @@ export default function SheetsPage() {
   useEffect(() => {
     fetchSheets();
     fetchScrapeRuns();
-    if (!sheetUrl) fetchEnv();
-  }, [fetchSheets, fetchScrapeRuns, fetchEnv, sheetUrl]);
+  }, [fetchSheets, fetchScrapeRuns]);
 
   // Load data for a specific run tab
   const openRunTab = async (tabName) => {
