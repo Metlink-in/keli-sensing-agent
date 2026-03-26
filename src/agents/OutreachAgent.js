@@ -24,7 +24,7 @@ class OutreachAgent {
     this._loadLog();
   }
 
-  async run(contacts, step = 1, approvedEmails = []) {
+  async run(contacts, step = 1, approvedEmails = null) {
     logger.info(`=== OUTREACH AGENT STARTING ===`);
     logger.info(`Contacts: ${contacts.length}, Starting at step ${step}`);
 
@@ -36,7 +36,7 @@ class OutreachAgent {
       targetContacts = contacts.filter(c => approvedAddrs.includes(c.email?.toLowerCase()) || approvedAddrs.includes(c.id));
       logger.info(`Filtered to ${targetContacts.length} approved contacts`);
     } else if (approvedEmails && approvedEmails.length === 0 && Array.isArray(approvedEmails)) {
-      // If an empty array was explicitly passed but not undefined
+      // If an empty array was explicitly passed but not undefined/null
       logger.info(`No approved emails provided, skipping outreach.`);
       // However, if the frontend sends a legitimate empty list meaning "send none", we should respect it
       return { sent: [], skipped: [], failed: [], simulated: [] };

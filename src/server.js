@@ -250,7 +250,7 @@ app.post("/api/pipeline/outreach/preview", async (req, res) => {
  */
 app.post("/api/pipeline/outreach", async (req, res) => {
   const step = parseInt(req.body.step || 1);
-  const approved = req.body.approved || [];
+  const approved = req.body.approved || null;
   logger.info(`API Request: Outreach Phase (Step ${step})`);
   try {
     const results = await pipeline.runOutreach(step, approved);

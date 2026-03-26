@@ -120,7 +120,7 @@ class PipelineOrchestrator {
   // ──────────────────────────────────────────────────────────
   // PHASE 4 — OUTREACH
   // ──────────────────────────────────────────────────────────
-  async runOutreach(step = 1, approvedEmailIds = []) {
+  async runOutreach(step = 1, approvedEmailIds = null) {
     logger.info(chalk.cyan(`\n▶ PHASE 4: AI-Personalized Outreach (Step ${step})`));
 
     // Load contacts from state or disk
