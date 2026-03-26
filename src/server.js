@@ -432,11 +432,21 @@ app.post("/api/icp", (req, res) => {
  */
 app.get("/api/env", (req, res) => {
   try {
+    const defaultEnv = {
+      VITE_GOOGLE_SHEET_URL: process.env.VITE_GOOGLE_SHEET_URL || "",
+      GOOGLE_SHEETS_SPREADSHEET_ID: process.env.GOOGLE_SHEETS_SPREADSHEET_ID || "",
+      GOOGLE_SERVICE_ACCOUNT_EMAIL: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "",
+      // Do not blindly dump all of process.env for security reasons.
+    };
+
     const envPath = path.join(process.cwd(), ".env");
-    if (!fs.existsSync(envPath)) return res.json({});
+    if (!fs.existsSync(envPath)) {
+      return res.json(defaultEnv);
+    }
     const envContent = fs.readFileSync(envPath, "utf-8");
     const parsed = require("dotenv").parse(envContent);
-    res.json(parsed);
+    // Merge file and process.env explicitly mapped fields
+    res.json({ ...defaultEnv, ...parsed });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
