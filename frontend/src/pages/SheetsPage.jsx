@@ -129,8 +129,17 @@ export default function SheetsPage() {
   const [runData, setRunData] = useState(null);
   const [runDataLoading, setRunDataLoading] = useState(false);
   const [runSearch, setRunSearch] = useState("");
+  const [sheetUrl, setSheetUrl] = useState(import.meta.env.VITE_GOOGLE_SHEET_URL || "");
 
-  const sheetUrl = import.meta.env.VITE_GOOGLE_SHEET_URL;
+  const fetchEnv = useCallback(async () => {
+    try {
+      const { getEnv } = await import("../api");
+      const res = await getEnv();
+      if (res.data?.VITE_GOOGLE_SHEET_URL || res.data?.GOOGLE_SHEETS_SPREADSHEET_ID) {
+        setSheetUrl(res.data.VITE_GOOGLE_SHEET_URL || `https://docs.google.com/spreadsheets/d/${res.data.GOOGLE_SHEETS_SPREADSHEET_ID}/edit`);
+      }
+    } catch (e) { }
+  }, []);
 
   const fetchSheets = useCallback(async () => {
     try {
@@ -159,7 +168,8 @@ export default function SheetsPage() {
   useEffect(() => {
     fetchSheets();
     fetchScrapeRuns();
-  }, []);
+    if (!sheetUrl) fetchEnv();
+  }, [fetchSheets, fetchScrapeRuns, fetchEnv, sheetUrl]);
 
   // Load data for a specific run tab
   const openRunTab = async (tabName) => {
@@ -298,13 +308,13 @@ export default function SheetsPage() {
         <div className="glass-card p-4 flex-1 flex flex-col gap-2 min-h-0">
           <div className="flex items-center gap-2 mb-1">
             <Clock size={14} className="text-brand-500" />
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scrape History</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Run History</h3>
             {scrapeRunsLoading && <Loader2 size={12} className="animate-spin text-slate-400 ml-auto" />}
           </div>
           <div className="flex-1 overflow-y-auto space-y-1">
             {scrapeRuns.length === 0 ? (
               <div className="text-xs text-slate-400 p-3 text-center leading-relaxed">
-                No scrape runs yet.<br />Run a <strong>Scrape</strong> from the Pipeline tab to get started.
+                No runs yet.<br />Run a phase from the <strong>Pipeline</strong> tab to get started.
               </div>
             ) : scrapeRuns.map((run) => (
               <button key={run.tabName} onClick={() => openRunTab(run.tabName)}

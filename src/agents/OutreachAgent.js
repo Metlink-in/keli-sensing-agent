@@ -24,13 +24,23 @@ class OutreachAgent {
     this._loadLog();
   }
 
-  /**
-   * MAIN ENTRY POINT
-   * Sends personalized outreach to a list of contacts
-   */
-  async run(contacts, step = 1) {
+  async run(contacts, step = 1, approvedEmails = []) {
     logger.info(`=== OUTREACH AGENT STARTING ===`);
     logger.info(`Contacts: ${contacts.length}, Starting at step ${step}`);
+
+    // Filter contacts based on approved list
+    let targetContacts = contacts;
+    if (approvedEmails && approvedEmails.length > 0) {
+      // approvedEmails is an array of preview objects from the frontend: { to: "email@example.com", ... }
+      const approvedAddrs = approvedEmails.map(e => e.to?.toLowerCase());
+      targetContacts = contacts.filter(c => approvedAddrs.includes(c.email?.toLowerCase()) || approvedAddrs.includes(c.id));
+      logger.info(`Filtered to ${targetContacts.length} approved contacts`);
+    } else if (approvedEmails && approvedEmails.length === 0 && Array.isArray(approvedEmails)) {
+      // If an empty array was explicitly passed but not undefined
+      logger.info(`No approved emails provided, skipping outreach.`);
+      // However, if the frontend sends a legitimate empty list meaning "send none", we should respect it
+      return { sent: [], skipped: [], failed: [], simulated: [] };
+    }
 
     const forceSend = process.env.FORCE_SEND_MOCK_EMAILS === "true";
 
@@ -38,12 +48,12 @@ class OutreachAgent {
     // When FORCE_SEND_MOCK_EMAILS=true, treat all contacts as real so emails go via SMTP
     let realContacts, mockContacts;
     if (forceSend) {
-      realContacts = contacts;
+      realContacts = targetContacts;
       mockContacts = [];
-      logger.info(`🚀 FORCE_SEND_MOCK_EMAILS=true — sending all ${contacts.length} contacts via SMTP`);
+      logger.info(`🚀 FORCE_SEND_MOCK_EMAILS=true — sending all ${targetContacts.length} contacts via SMTP`);
     } else {
-      realContacts = contacts.filter((c) => c.source !== "apollo_mock");
-      mockContacts = contacts.filter((c) => c.source === "apollo_mock");
+      realContacts = targetContacts.filter((c) => c.source !== "apollo_mock");
+      mockContacts = targetContacts.filter((c) => c.source === "apollo_mock");
       if (mockContacts.length > 0) {
         logger.info(`📧 ${realContacts.length} real contacts (will send) | 🔵 ${mockContacts.length} mock contacts (will simulate — no SMTP)`);
         logger.info(`   💡 Set FORCE_SEND_MOCK_EMAILS=true in .env to send emails for all contacts`);
@@ -53,7 +63,7 @@ class OutreachAgent {
     const stepConfig = this.sequence.find((s) => s.step === step);
     if (!stepConfig) {
       logger.error(`No config found for step ${step}`);
-      return { sent: [], skipped: [], failed: [] };
+      return { sent: [], skipped: [], failed: [], simulated: [] };
     }
 
     const results = { sent: [], skipped: [], failed: [], simulated: [] };

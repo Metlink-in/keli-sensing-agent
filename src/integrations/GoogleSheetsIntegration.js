@@ -168,14 +168,16 @@ class GoogleSheetsIntegration {
   // ── Scrape Run History ──────────────────────────────────────
 
   /**
-   * Build the tab name for a scrape run.
-   * Format: "Scrape 03/26/26 · Keli Sensing"
+   * Build the tab name for a pipeline run.
+   * Format: "[Prefix] 03/26/26 14:30 · Keli Sensing"
    */
-  _scrapeRunTabName(date = new Date()) {
+  _pipelineRunTabName(prefix = SCRAPE_RUN_PREFIX, date = new Date()) {
     const mm = String(date.getMonth() + 1).padStart(2, "0");
     const dd = String(date.getDate()).padStart(2, "0");
     const yy = String(date.getFullYear()).slice(-2);
-    return `${SCRAPE_RUN_PREFIX}${mm}/${dd}/${yy} · Keli Sensing`;
+    const hh = String(date.getHours()).padStart(2, "0");
+    const min = String(date.getMinutes()).padStart(2, "0");
+    return `${prefix}${mm}/${dd}/${yy} ${hh}:${min} · Keli Sensing`;
   }
 
   /**
@@ -188,7 +190,7 @@ class GoogleSheetsIntegration {
       return null;
     }
 
-    const tabName = this._scrapeRunTabName();
+    const tabName = this._pipelineRunTabName();
 
     try {
       // Create the new sheet tab
@@ -241,6 +243,50 @@ class GoogleSheetsIntegration {
   }
 
   /**
+   * Create a new dated pipeline-run tab and write data into it.
+   */
+  async createPipelineRunTab(prefix, headers, rows) {
+    if (this.dryRun || !this.sheets) {
+      logger.info(`[DRY RUN] Would create ${prefix} run tab with ${rows.length} rows`);
+      return null;
+    }
+
+    const tabName = this._pipelineRunTabName(prefix);
+
+    try {
+      await this.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: this.spreadsheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: tabName } } }],
+        },
+      });
+
+      await this.sheets.spreadsheets.values.update({
+        spreadsheetId: this.spreadsheetId,
+        range: `'${tabName}'!A1`,
+        valueInputOption: "RAW",
+        requestBody: { values: [headers] },
+      });
+
+      if (rows.length > 0) {
+        await this.sheets.spreadsheets.values.append({
+          spreadsheetId: this.spreadsheetId,
+          range: `'${tabName}'!A:Z`,
+          valueInputOption: "USER_ENTERED",
+          insertDataOption: "INSERT_ROWS",
+          requestBody: { values: rows },
+        });
+      }
+
+      logger.info(`Created run tab "${tabName}" with ${rows.length} rows`);
+      return tabName;
+    } catch (err) {
+      logger.error(`Failed to create ${prefix} run tab: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
    * List all scrape-run history tabs (sorted newest first).
    * Returns: [{ tabName, date }]
    */
@@ -250,9 +296,10 @@ class GoogleSheetsIntegration {
       const meta = await this.sheets.spreadsheets.get({
         spreadsheetId: this.spreadsheetId,
       });
+      const validPrefixes = ["Scrape ", "Enrich ", "Outreach ", "Score ", "Report ", "Response "];
       const runs = meta.data.sheets
         .map((s) => s.properties.title)
-        .filter((t) => t.startsWith(SCRAPE_RUN_PREFIX))
+        .filter((t) => validPrefixes.some(prefix => t.startsWith(prefix)) && t !== "Outreach Log" && t !== "Responses" && t !== "Report ")
         .reverse(); // newest last in Sheets = first here after reverse
       return runs.map((tabName) => ({ tabName }));
     } catch (err) {

@@ -120,7 +120,7 @@ class PipelineOrchestrator {
   // ──────────────────────────────────────────────────────────
   // PHASE 4 — OUTREACH
   // ──────────────────────────────────────────────────────────
-  async runOutreach(step = 1) {
+  async runOutreach(step = 1, approvedEmailIds = []) {
     logger.info(chalk.cyan(`\n▶ PHASE 4: AI-Personalized Outreach (Step ${step})`));
 
     // Load contacts from state or disk
@@ -133,7 +133,7 @@ class PipelineOrchestrator {
       return;
     }
 
-    const results = await this.outreach.run(this.state.contacts, step);
+    const results = await this.outreach.run(this.state.contacts, step, approvedEmailIds);
 
     // Persist outreach log
     const log = this.outreach.getOutreachLog();

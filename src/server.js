@@ -157,10 +157,33 @@ app.post("/api/pipeline/enrich", async (req, res) => {
     if (!contacts) {
       return res.status(400).json({ error: "No companies available. Run scrape first." });
     }
+    
+    // Auto-create a dated enrich-run tab in Google Sheets
+    let runTabName = null;
+    try {
+      const sheets = require("./integrations/GoogleSheetsIntegration");
+      if (!sheets.initialized) await sheets.init();
+      const headers = [
+        "ID", "Name", "First Name", "Last Name", "Title", "Email", "Email Status",
+        "Phone", "LinkedIn", "Company", "Company Domain", "City", "Country",
+        "Seniority", "Source", "Enriched At"
+      ];
+      const rows = contacts.map((c) => [
+        c.id, c.name, c.firstName || "", c.lastName || "", c.title || "",
+        c.email || "", c.emailStatus || "", c.phone || "", c.linkedinUrl || "",
+        c.company || "", c.companyDomain || "", c.city || "", c.country || "",
+        c.seniorityLevel || "", c.source || "", c.enrichedAt || new Date().toISOString(),
+      ]);
+      runTabName = await sheets.createPipelineRunTab("Enrich ", headers, rows);
+    } catch (sheetErr) {
+      logger.warn(`Could not create enrich run tab: ${sheetErr.message}`);
+    }
+
     res.json({ 
       success: true, 
       message: "Enrichment completed", 
-      contactsEnriched: contacts.length 
+      contactsEnriched: contacts.length,
+      runTabName
     });
   } catch (err) {
     logger.error(`Enrichment failed: ${err.message}`);
@@ -227,15 +250,39 @@ app.post("/api/pipeline/outreach/preview", async (req, res) => {
  */
 app.post("/api/pipeline/outreach", async (req, res) => {
   const step = parseInt(req.body.step || 1);
+  const approved = req.body.approved || [];
   logger.info(`API Request: Outreach Phase (Step ${step})`);
   try {
-    const results = await pipeline.runOutreach(step);
+    const results = await pipeline.runOutreach(step, approved);
     if (!results) {
       return res.status(400).json({ error: "No contacts available. Run enrich first." });
     }
+
+    // Auto-create a dated outreach-run tab in Google Sheets
+    let runTabName = null;
+    try {
+      if (results.sent.length > 0 || results.simulated.length > 0) {
+         const sheets = require("./integrations/GoogleSheetsIntegration");
+         if (!sheets.initialized) await sheets.init();
+         const headers = [
+           "Contact ID", "Contact Name", "Company", "Email", "Step", "Type",
+           "Subject", "Status", "Sent At", "Message ID"
+         ];
+         const allRecords = [...results.sent, ...results.simulated];
+         const rows = allRecords.map((o) => [
+           o.contactId, o.contactName, o.company, o.email,
+           o.step, o.type, o.subject, o.status, o.sentAt, o.messageId || ""
+         ]);
+         runTabName = await sheets.createPipelineRunTab("Outreach ", headers, rows);
+      }
+    } catch (sheetErr) {
+      logger.warn(`Could not create outreach run tab: ${sheetErr.message}`);
+    }
+
     res.json({
       success: true,
       message: `Outreach Step ${step} completed`,
+      runTabName,
       results
     });
   } catch (err) {
@@ -251,9 +298,31 @@ app.post("/api/pipeline/score", async (req, res) => {
   logger.info("API Request: Lead Scoring Phase");
   try {
     const scores = await pipeline.runScoring();
+
+    // Auto-create a dated score-run tab in Google Sheets
+    let runTabName = null;
+    try {
+      const sheets = require("./integrations/GoogleSheetsIntegration");
+      if (!sheets.initialized) await sheets.init();
+      const headers = [
+        "Company ID", "Company Name", "Contact Name", "Title", "Email",
+        "Total Score", "Company Score", "Engagement Score", "Sentiment Score",
+        "Priority", "Last Activity", "Notes",
+      ];
+      const rows = scores.map((l) => [
+        l.companyId, l.companyName, l.contactName, l.title, l.email,
+        l.totalScore, l.companyScore, l.engagementScore, l.sentimentScore,
+        l.priority, l.lastActivity, l.notes || "",
+      ]);
+      runTabName = await sheets.createPipelineRunTab("Score ", headers, rows);
+    } catch (sheetErr) {
+      logger.warn(`Could not create score run tab: ${sheetErr.message}`);
+    }
+
     res.json({ 
       success: true, 
       message: "Scoring completed",
+      runTabName,
       highPriority: scores.filter(s => s.priority === "HIGH").length,
       mediumPriority: scores.filter(s => s.priority === "MEDIUM").length,
       lowPriority: scores.filter(s => s.priority === "LOW").length
@@ -271,7 +340,26 @@ app.post("/api/pipeline/report", async (req, res) => {
   logger.info("API Request: Reporting Phase");
   try {
     await pipeline.runReporting();
-    res.json({ success: true, message: "Dashboard synced to Google Sheets" });
+
+    // Auto-create a dated response-run tab
+    let runTabName = null;
+    try {
+      const sheets = require("./integrations/GoogleSheetsIntegration");
+      if (!sheets.initialized) await sheets.init();
+      
+      const responses = pipeline.state?.responses || pipeline._loadState("responses") || [];
+      if (responses.length > 0) {
+        const headers = ["Original Message", "Sender", "Intent", "Urgency", "Summary", "Next Steps", "Received At"];
+        const rows = responses.map(r => [
+          r.originalMessage || "", r.from || "", r.intent || "", r.urgency || "", r.summary || "", r.nextSteps || "", r.date || new Date().toISOString()
+        ]);
+        runTabName = await sheets.createPipelineRunTab("Response ", headers, rows);
+      }
+    } catch (sheetErr) {
+      logger.warn(`Could not create response run tab: ${sheetErr.message}`);
+    }
+
+    res.json({ success: true, message: "Dashboard synced to Google Sheets", runTabName });
   } catch (err) {
     logger.error(`Reporting failed: ${err.message}`);
     res.status(500).json({ error: err.message });
