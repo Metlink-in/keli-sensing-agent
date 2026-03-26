@@ -42,21 +42,20 @@ class OutreachAgent {
       return { sent: [], skipped: [], failed: [], simulated: [] };
     }
 
-    const forceSend = process.env.FORCE_SEND_MOCK_EMAILS === "true";
+    // Default to true in production so emails always send, unless explicitly disabled
+    const forceSend = process.env.FORCE_SEND_MOCK_EMAILS !== "false";
 
     // Split into real (Apollo-verified) and mock contacts
-    // When FORCE_SEND_MOCK_EMAILS=true, treat all contacts as real so emails go via SMTP
     let realContacts, mockContacts;
     if (forceSend) {
       realContacts = targetContacts;
       mockContacts = [];
-      logger.info(`🚀 FORCE_SEND_MOCK_EMAILS=true — sending all ${targetContacts.length} contacts via SMTP`);
+      logger.info(`🚀 Sending all ${targetContacts.length} contacts via SMTP (FORCE_SEND_MOCK_EMAILS is true)`);
     } else {
       realContacts = targetContacts.filter((c) => c.source !== "apollo_mock");
       mockContacts = targetContacts.filter((c) => c.source === "apollo_mock");
       if (mockContacts.length > 0) {
-        logger.info(`📧 ${realContacts.length} real contacts (will send) | 🔵 ${mockContacts.length} mock contacts (will simulate — no SMTP)`);
-        logger.info(`   💡 Set FORCE_SEND_MOCK_EMAILS=true in .env to send emails for all contacts`);
+        logger.info(`📧 ${realContacts.length} real contacts (will send) | 🔵 ${mockContacts.length} mock contacts (will simulate)`);
       }
     }
 
