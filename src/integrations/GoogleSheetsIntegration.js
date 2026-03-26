@@ -172,11 +172,25 @@ class GoogleSheetsIntegration {
    * Format: "[Prefix] 03/26/26 14:30 · Keli Sensing"
    */
   _pipelineRunTabName(prefix = SCRAPE_RUN_PREFIX, date = new Date()) {
-    const mm = String(date.getMonth() + 1).padStart(2, "0");
-    const dd = String(date.getDate()).padStart(2, "0");
-    const yy = String(date.getFullYear()).slice(-2);
-    const hh = String(date.getHours()).padStart(2, "0");
-    const min = String(date.getMinutes()).padStart(2, "0");
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Kolkata",
+      month: "2-digit",
+      day: "2-digit",
+      year: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    });
+    const parts = formatter.formatToParts(date);
+    const mm = parts.find(p => p.type === "month").value;
+    const dd = parts.find(p => p.type === "day").value;
+    const yy = parts.find(p => p.type === "year").value;
+    let hh = parts.find(p => p.type === "hour").value;
+    const min = parts.find(p => p.type === "minute").value;
+    
+    // Intl sometimes returns 24 for midnight instead of 00
+    if (hh === "24") hh = "00";
+    
     return `${prefix}${mm}/${dd}/${yy} ${hh}:${min} · Keli Sensing`;
   }
 

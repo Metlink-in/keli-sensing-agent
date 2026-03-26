@@ -409,7 +409,7 @@ export default function PipelinePage() {
       const { data } = await runScrape(cfg);
       const msg = `✓ ${data.companiesDiscovered} companies discovered`;
       toast.success(msg);
-      setResult("scrape", { message: msg });
+      setResult("scrape", { message: msg, data, runTabName: data.runTabName });
       // Refresh scrape runs list
       listScrapeRuns().then(r => setScrapeRuns(r.data.runs || [])).catch(() => {});
     } catch (e) {
@@ -428,7 +428,7 @@ export default function PipelinePage() {
       const { data } = await runEnrich(cfg);
       const msg = `✓ ${data.contactsEnriched || 0} contacts enriched`;
       toast.success(msg);
-      setResult("enrich", { message: msg });
+      setResult("enrich", { message: msg, data, runTabName: data.runTabName });
     } catch (e) {
       const err = e.response?.data?.error || "Enrich failed";
       toast.error(err);
@@ -445,7 +445,7 @@ export default function PipelinePage() {
       const { data } = await runOutreach(step, approved);
       const msg = `✓ Outreach sent`;
       toast.success(msg);
-      setResult("outreach", { message: msg });
+      setResult("outreach", { message: msg, data, runTabName: data.runTabName });
     } catch (e) {
       const err = e.response?.data?.error || "Outreach failed";
       toast.error(err);
@@ -462,7 +462,7 @@ export default function PipelinePage() {
       const { data } = await runScore();
       const msg = `✓ Scoring complete`;
       toast.success(msg);
-      setResult("score", { message: msg });
+      setResult("score", { message: msg, data, runTabName: data.runTabName });
     } catch (e) {
       const err = e.response?.data?.error || "Scoring failed";
       toast.error(err);
@@ -479,7 +479,7 @@ export default function PipelinePage() {
       const { data } = await runReport();
       const msg = `✓ Synced to Google Sheets`;
       toast.success(msg);
-      setResult("report", { message: msg });
+      setResult("report", { message: msg, data, runTabName: data.runTabName });
     } catch (e) {
       const err = e.response?.data?.error || "Report failed";
       toast.error(err);
@@ -526,12 +526,81 @@ export default function PipelinePage() {
         ))}
       </div>
 
-      {/* Empty state placeholder */}
-      <div className="glass-card flex-1 flex items-center justify-center p-10 text-center">
-        <div>
-          <Target size={36} className="mx-auto mb-3 text-slate-300 dark:text-gray-600" />
-          <p className="text-slate-500 dark:text-slate-400 font-medium">Run a phase above to see results.</p>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Results and logs will appear here after a phase completes.</p>
+      {/* Results / Logs Section */}
+      <div className="glass-card flex-1 flex flex-col overflow-hidden min-h-[300px]">
+        <div className="p-4 border-b border-slate-200 dark:border-gray-800 flex justify-between items-center bg-slate-50/50 dark:bg-gray-900/20">
+          <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <Target size={16} className="text-brand-500" /> Pipeline Execution Results
+          </h3>
+          <div className="text-xs text-slate-400">
+            {Object.keys(results).length === 0 ? "No phases run yet" : `Showing results for recent runs`}
+          </div>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+          {Object.keys(results).length === 0 ? (
+            <div className="m-auto text-center">
+              <p className="text-slate-500 dark:text-slate-400 font-medium">Run a phase above to see results.</p>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Detailed logs and outputs will appear here after a phase completes.</p>
+            </div>
+          ) : (
+            // Render latest result from outreach if exists, otherwise show a list of results
+            Object.entries(results).reverse().map(([id, res]) => (
+              <div key={id} className="p-4 rounded-xl border border-slate-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className={`w-2 h-2 rounded-full ${res.error ? "bg-red-500" : "bg-emerald-500"}`} />
+                  <h4 className="font-bold uppercase tracking-wider text-xs text-slate-500 dark:text-slate-400">
+                    {id} phase
+                  </h4>
+                  {res.runTabName && (
+                    <span className="ml-auto text-xs bg-brand-50 dark:bg-brand-900/20 text-brand-600 dark:text-brand-400 font-semibold px-2 py-1 rounded-md">
+                      Saved to {res.runTabName}
+                    </span>
+                  )}
+                </div>
+                
+                {res.error ? (
+                  <p className="text-sm text-red-500 font-medium">{res.error}</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{res.message}</p>
+                    
+                    {/* Render specific metrics depending on phase */}
+                    {id === "scrape" && res.data && (
+                      <p className="text-sm text-slate-600 dark:text-slate-400">Companies Discovered: {res.data.companiesDiscovered}</p>
+                    )}
+                    {id === "enrich" && res.data && (
+                      <p className="text-sm text-slate-600 dark:text-slate-400">Contacts Enriched: {res.data.contactsEnriched}</p>
+                    )}
+                    {id === "score" && res.data && (
+                      <div className="flex gap-4 mt-2">
+                        <span className="text-xs font-semibold px-2 py-1 bg-red-50 text-red-600 rounded">HIGH: {res.data.highPriority}</span>
+                        <span className="text-xs font-semibold px-2 py-1 bg-amber-50 text-amber-600 rounded">MED: {res.data.mediumPriority}</span>
+                        <span className="text-xs font-semibold px-2 py-1 bg-slate-50 text-slate-600 rounded">LOW: {res.data.lowPriority}</span>
+                      </div>
+                    )}
+                    {id === "outreach" && res.data?.results && (
+                      <div className="mt-2 flex flex-col gap-2">
+                        <div className="flex gap-4">
+                          <span className="text-xs font-semibold px-2 py-1 bg-emerald-50 text-emerald-600 rounded">Sent: {res.data.results.sent?.length || 0}</span>
+                          <span className="text-xs font-semibold px-2 py-1 bg-blue-50 text-blue-600 rounded">Simulated: {res.data.results.simulated?.length || 0}</span>
+                          <span className="text-xs font-semibold px-2 py-1 bg-slate-50 text-slate-600 rounded">Skipped: {res.data.results.skipped?.length || 0}</span>
+                          <span className="text-xs font-semibold px-2 py-1 bg-red-50 text-red-600 rounded">Failed: {res.data.results.failed?.length || 0}</span>
+                        </div>
+                        {res.data.results.sent?.length > 0 && (
+                          <div className="mt-2 text-xs text-slate-500 overflow-y-auto max-h-40 p-2 rounded bg-slate-50 dark:bg-gray-800">
+                            {res.data.results.sent.map((e, idx) => (
+                              <div key={idx} className="mb-1"><strong>Sent to:</strong> {e.email} ({e.subject})</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
