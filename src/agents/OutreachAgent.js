@@ -28,87 +28,46 @@ class OutreachAgent {
     logger.info(`=== OUTREACH AGENT STARTING ===`);
     logger.info(`Contacts: ${contacts.length}, Starting at step ${step}`);
 
-    // Filter contacts based on approved list
+    // Filter contacts based on approved list if provided
     let targetContacts = contacts;
     if (approvedEmails && approvedEmails.length > 0) {
-      // approvedEmails is an array of preview objects from the frontend: { to: "email@example.com", ... }
       const approvedAddrs = approvedEmails.map(e => e.to?.toLowerCase());
-      targetContacts = contacts.filter(c => approvedAddrs.includes(c.email?.toLowerCase()) || approvedAddrs.includes(c.id));
+      targetContacts = contacts.filter(c => approvedAddrs.includes(c.email?.toLowerCase()));
       logger.info(`Filtered to ${targetContacts.length} approved contacts`);
-    } else if (approvedEmails && approvedEmails.length === 0 && Array.isArray(approvedEmails)) {
-      // If an empty array was explicitly passed but not undefined/null
-      logger.info(`No approved emails provided, skipping outreach.`);
-      // However, if the frontend sends a legitimate empty list meaning "send none", we should respect it
-      return { sent: [], skipped: [], failed: [], simulated: [] };
-    }
-
-    // Default to true in production so emails always send, unless explicitly disabled
-    const forceSend = process.env.FORCE_SEND_MOCK_EMAILS !== "false";
-
-    // Split into real (Apollo-verified) and mock contacts
-    let realContacts, mockContacts;
-    if (forceSend) {
-      realContacts = targetContacts;
-      mockContacts = [];
-      logger.info(`🚀 Sending all ${targetContacts.length} contacts via SMTP (FORCE_SEND_MOCK_EMAILS is true)`);
-    } else {
-      realContacts = targetContacts.filter((c) => c.source !== "apollo_mock");
-      mockContacts = targetContacts.filter((c) => c.source === "apollo_mock");
-      if (mockContacts.length > 0) {
-        logger.info(`📧 ${realContacts.length} real contacts (will send) | 🔵 ${mockContacts.length} mock contacts (will simulate)`);
-      }
     }
 
     const stepConfig = this.sequence.find((s) => s.step === step);
     if (!stepConfig) {
       logger.error(`No config found for step ${step}`);
-      return { sent: [], skipped: [], failed: [], simulated: [] };
+      return { sent: [], skipped: [], failed: [] };
     }
 
-    const results = { sent: [], skipped: [], failed: [], simulated: [] };
+    const results = { sent: [], skipped: [], failed: [] };
 
-    // ── Phase A: Send real outreach via SMTP ──────────────────
-    if (realContacts.length > 0) {
-      await smtp.connect();
-      for (const contact of realContacts) {
-        if (this._alreadyContactedAtStep(contact.id, step)) {
-          results.skipped.push({ contact: contact.name, reason: "already_contacted" });
-          continue;
-        }
-        try {
-          const result = await this.sendToContact(contact, stepConfig);
-          if (result.sent) {
-            results.sent.push(result);
-            this._logOutreach(contact, stepConfig, result);
-          } else {
-            results.failed.push(result);
-          }
-        } catch (err) {
-          logger.error(`Outreach failed for ${contact.name}: ${err.message}`);
-          results.failed.push({ contact: contact.name, error: err.message });
-        }
-      }
-    }
-
-    // ── Phase B: Simulate outreach for mock contacts ──────────
-    // Generate AI-personalized email content and log it — no SMTP call
-    for (const contact of mockContacts) {
+    // Send outreach via SMTP to all contacts (no mock filtering)
+    await smtp.connect();
+    for (const contact of targetContacts) {
       if (this._alreadyContactedAtStep(contact.id, step)) {
         results.skipped.push({ contact: contact.name, reason: "already_contacted" });
         continue;
       }
       try {
-        const simResult = await this.simulateOutreach(contact, stepConfig);
-        results.simulated.push(simResult);
-        this._logOutreach(contact, stepConfig, { ...simResult, sent: true });
+        const result = await this.sendToContact(contact, stepConfig);
+        if (result.sent) {
+          results.sent.push(result);
+          this._logOutreach(contact, stepConfig, result);
+        } else {
+          results.failed.push(result);
+        }
       } catch (err) {
-        logger.warn(`Simulation failed for ${contact.name}: ${err.message}`);
+        logger.error(`Outreach failed for ${contact.name}: ${err.message}`);
+        results.failed.push({ contact: contact.name, error: err.message });
       }
     }
 
     this._saveLog();
 
-    logger.info(`Outreach complete: ${results.sent.length} sent | ${results.simulated.length} simulated | ${results.skipped.length} skipped | ${results.failed.length} failed`);
+    logger.info(`Outreach complete: ${results.sent.length} sent | ${results.skipped.length} skipped | ${results.failed.length} failed`);
     return results;
   }
 

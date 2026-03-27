@@ -108,14 +108,18 @@ app.post("/api/reset", (req, res) => {
  */
 app.post("/api/pipeline/all", async (req, res) => {
   logger.info("API Request: Run Full Pipeline");
-  // We don't await because it takes 20-40 minutes.
-  // We return immediately to prevent HTTP timeout.
-  pipeline.runFull().catch(err => {
+  try {
+    await pipeline.runFull();
+    const stats = pipeline.getFullStats();
+    res.json({ 
+      success: true,
+      message: "Full pipeline completed successfully",
+      stats
+    });
+  } catch (err) {
     logger.error(`Full pipeline failed: ${err.message}`);
-  });
-  res.status(202).json({ 
-    message: "Full pipeline initiated. Check logs and /api/stats to monitor progress.",
-  });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /**
@@ -193,51 +197,101 @@ app.post("/api/pipeline/enrich", async (req, res) => {
 
 /**
  * Phase 4: Outreach Preview
- * Generates 3 sample emails without sending them.
+ * Generates AI-personalized emails for ALL enriched contacts without sending them.
  * Body: { targetList, roles }
  */
 app.post("/api/pipeline/outreach/preview", async (req, res) => {
   logger.info("API Request: Outreach Preview");
   try {
-    // Pull a few contacts from the Contacts sheet to preview
-    const sheets = require("./integrations/GoogleSheetsIntegration");
-    if (!sheets.initialized) await sheets.init();
-    const contactData = await sheets.getScrapeRunData("Contacts").catch(() => ({ headers: [], rows: [] }));
+    // Load ALL contacts from data/contacts.json
+    const contactsFile = path.join(__dirname, "../data/contacts.json");
+    let contacts = [];
+    
+    if (fs.existsSync(contactsFile)) {
+      contacts = JSON.parse(fs.readFileSync(contactsFile, "utf-8"));
+      logger.info(`Loaded ${contacts.length} contacts for preview`);
+    } else {
+      return res.status(400).json({ 
+        error: "No contacts found. Please run the Enrichment phase first." 
+      });
+    }
 
-    // Try to get real contact rows, otherwise use placeholders
-    const sampleContacts = (contactData.rows || []).slice(0, 3);
+    if (contacts.length === 0) {
+      return res.status(400).json({ 
+        error: "No contacts available. Run Enrichment phase first." 
+      });
+    }
+
+    // Load ICP config for personalization
     const icpPath = path.join(__dirname, "config/icp.config.js");
     delete require.cache[require.resolve(icpPath)];
     const icp = require(icpPath);
+    
+    // Load outreach config for templates
+    const outreachConfigPath = path.join(__dirname, "config/outreach.config.js");
+    delete require.cache[require.resolve(outreachConfigPath)];
+    const outreachConfig = require(outreachConfigPath);
+    
+    const llm = require("./integrations/OpenAILLM");
+    const OutreachAgent = require("./agents/OutreachAgent");
+    const outreachAgent = new OutreachAgent();
 
-    const companyName = icp?.valueProposition?.company || "your company";
-    const tagline = icp?.valueProposition?.tagline || "helping businesses grow";
-    const senderName = "The Keli Sensing Team";
+    // Get step 1 config
+    const stepConfig = outreachConfig.sequences.standard.find(s => s.step === 1);
+    if (!stepConfig) {
+      return res.status(500).json({ error: "No outreach sequence configured for step 1" });
+    }
+
+    const template = outreachConfig.promptTemplates[stepConfig.templateId];
+    if (!template) {
+      return res.status(500).json({ error: `Template ${stepConfig.templateId} not found` });
+    }
+
+    // Generate AI-personalized emails for ALL contacts
+    const previews = [];
+    const companyName = icp?.valueProposition?.company || "Keli Sensing";
+    const senderName = process.env.SMTP_FROM_NAME || "The Keli Sensing Team";
     const signatureHtml = `<br><br>Best regards,<br><b>${senderName}</b><br>${companyName}<br><a href="${icp?.valueProposition?.website || '#'}">${icp?.valueProposition?.website || ''}</a>`;
 
-    const previews = sampleContacts.length > 0
-      ? sampleContacts.map((row, i) => ({
-          id: `preview_${i}`,
-          to: row[5] || `contact${i + 1}@example.com`,
-          toName: row[1] || `Contact ${i + 1}`,
-          company: row[9] || "Their Company",
-          subject: `${companyName} — Quick Question for ${row[1] || 'You'}`,
-          body: `Hi ${row[2] || row[1] || 'there'},\n\nI came across ${row[9] || 'your company'} and was impressed by your work. At ${companyName}, we specialize in ${tagline}.\n\nI'd love to explore whether there's a fit — would you be open to a quick 15-minute call this week?\n\nLooking forward to hearing from you.`,
+    for (let i = 0; i < contacts.length; i++) {
+      const contact = contacts[i];
+      
+      try {
+        // Build personalization variables
+        const variables = outreachAgent._buildPersonalizationVariables(contact);
+        
+        // Generate AI email using OpenAI
+        const { subject, textBody } = await llm.generateOutreachEmail(template, variables);
+        
+        previews.push({
+          id: contact.id || `preview_${i}`,
+          to: contact.email,
+          toName: contact.name,
+          company: contact.company,
+          subject: subject,
+          body: textBody,
           signature: signatureHtml,
           approved: null,
-        }))
-      : [0, 1, 2].map((i) => ({
-          id: `preview_${i}`,
-          to: `lead${i + 1}@example.com`,
-          toName: `Lead ${i + 1}`,
-          company: `Example Corp ${i + 1}`,
-          subject: `${companyName} — Reaching Out`,
-          body: `Hi Lead ${i + 1},\n\nI came across Example Corp ${i + 1} and thought there could be a great fit with ${companyName}.\n\nWe specialize in ${tagline}, and I'd love to share more.\n\nWould you be open to a quick call?`,
+        });
+        
+        logger.info(`Generated preview ${i + 1}/${contacts.length} for ${contact.name}`);
+      } catch (err) {
+        logger.error(`Failed to generate preview for ${contact.name}: ${err.message}`);
+        // Add a fallback preview
+        previews.push({
+          id: contact.id || `preview_${i}`,
+          to: contact.email,
+          toName: contact.name,
+          company: contact.company,
+          subject: `${companyName} — Partnership Opportunity`,
+          body: `Hi ${contact.firstName || contact.name},\n\nI came across ${contact.company} and was impressed by your work in robotics.\n\nAt ${companyName}, we provide precision sensing solutions. I'd love to explore if there's a fit.\n\nWould you be open to a brief call?`,
           signature: signatureHtml,
           approved: null,
-        }));
+        });
+      }
+    }
 
-    res.json({ success: true, previews });
+    res.json({ success: true, previews, total: previews.length });
   } catch (err) {
     logger.error(`Outreach preview failed: ${err.message}`);
     res.status(500).json({ error: err.message });
@@ -246,7 +300,7 @@ app.post("/api/pipeline/outreach/preview", async (req, res) => {
 
 /**
  * Phase 4: Outreach
- * Specify step in body, e.g. { "step": 1 }
+ * Specify step in body, e.g. { "step": 1, "approved": [...] }
  */
 app.post("/api/pipeline/outreach", async (req, res) => {
   const step = parseInt(req.body.step || 1);

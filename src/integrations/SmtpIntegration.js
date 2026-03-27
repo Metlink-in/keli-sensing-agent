@@ -86,7 +86,7 @@ class SmtpIntegration {
 
     if (this.dryRun || !this.transporter) {
       logger.info(`[DRY RUN] Would send email to ${to}: "${subject}"`);
-      this._logSent(to, subject, contactId, companyId, "dry_run");
+      this._logSent(to, subject, contactId, companyId, "dry_run", null, null, true);
       return { sent: true, dryRun: true, to, subject };
     }
 
@@ -150,14 +150,16 @@ ${text.split("\n").map((line) => `<p>${line || "&nbsp;"}</p>`).join("")}
   }
 
   _alreadySentTo(email) {
-    return this.sentLog.some((e) => e.to === email && e.status === "sent");
+    // Only check for actual sent emails, not dry-run or failed attempts
+    return this.sentLog.some((e) => e.to === email && e.status === "sent" && !e.dryRun);
   }
 
-  _logSent(to, subject, contactId, companyId, status, messageId, error) {
+  _logSent(to, subject, contactId, companyId, status, messageId, error, dryRun = false) {
     const entry = {
       to, subject, contactId, companyId, status,
       messageId: messageId || null,
       error: error || null,
+      dryRun: dryRun,
       sentAt: new Date().toISOString(),
     };
     this.sentLog.push(entry);

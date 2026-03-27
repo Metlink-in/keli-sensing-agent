@@ -64,8 +64,8 @@ class ApolloIntegration {
         return this._mockContacts(companyDomain);
       }
 
-      // Step 2: Unlock true data using people/match
-      const unlockedPeople = [];
+      // Step 2: Try to unlock full data, but use basic info if unlock fails
+      const contacts = [];
       for (const p of peopleRefs) {
         try {
           await sleepWithJitter(500);
@@ -74,14 +74,19 @@ class ApolloIntegration {
             reveal_personal_emails: true,
           });
           if (matchRes.data?.person) {
-            unlockedPeople.push(matchRes.data.person);
+            contacts.push(this._mapPerson(matchRes.data.person));
+          } else {
+            // Unlock returned no data, use basic search result
+            contacts.push(this._mapPerson(p));
           }
         } catch (matchErr) {
-          logger.warn(`Failed to unlock person ${p.id}: ${matchErr.message}`);
+          logger.warn(`Failed to unlock person ${p.id}: ${matchErr.message} - using basic info`);
+          // Use the basic contact info from search results
+          contacts.push(this._mapPerson(p));
         }
       }
 
-      return unlockedPeople.map((p) => this._mapPerson(p));
+      return contacts;
     } catch (err) {
       logger.warn(`Apollo API failed for ${companyDomain}: ${err.message} — using mock data`);
       if (err.response) {

@@ -173,12 +173,14 @@ function OutreachModal({ onClose, onRun, scrapeRuns }) {
 
   const handlePreview = async () => {
     setLoadingPreview(true);
+    const loadingToast = toast.loading("Generating AI-personalized emails for all contacts...");
     try {
       const { data } = await previewOutreach({ targetList: selectedList });
+      toast.success(`Generated ${data.previews.length} personalized emails!`, { id: loadingToast });
       setEmails(data.previews.map(e => ({ ...e, approved: null })));
       setStep("preview");
     } catch (e) {
-      toast.error("Failed to generate preview emails");
+      toast.error(e.response?.data?.error || "Failed to generate preview emails", { id: loadingToast });
     } finally {
       setLoadingPreview(false);
     }
@@ -219,7 +221,7 @@ function OutreachModal({ onClose, onRun, scrapeRuns }) {
         <div className="flex gap-3 p-4 rounded-xl bg-slate-50 dark:bg-gray-900/40 border border-slate-200 dark:border-gray-700">
           <Info size={16} className="text-brand-500 mt-0.5 shrink-0" />
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            Clicking "Generate Email Previews" will create <strong>3 sample personalized emails</strong> for your review. You can approve or deny each one before any emails are sent.
+            Clicking "Generate Email Previews" will create <strong>AI-personalized emails for ALL enriched contacts</strong>. Review and approve only the emails you want to send. This may take a few moments depending on the number of contacts.
           </p>
         </div>
       </Modal>
@@ -228,11 +230,11 @@ function OutreachModal({ onClose, onRun, scrapeRuns }) {
 
   // Preview step
   return (
-    <Modal title={`Email Previews (${approvedCount} approved · ${deniedCount} denied)`} icon={MailOpen} onClose={onClose}
+    <Modal title={`Email Previews — ${emails.length} Total (${approvedCount} approved · ${deniedCount} denied)`} icon={MailOpen} onClose={onClose}
       footer={
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <button onClick={approveAll} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors">
-            <CheckCheck size={15} /> Approve All
+            <CheckCheck size={15} /> Approve All ({emails.length})
           </button>
           <div className="flex gap-3">
             <button onClick={() => setStep("config")} className="btn-secondary">← Back</button>
@@ -243,7 +245,7 @@ function OutreachModal({ onClose, onRun, scrapeRuns }) {
           </div>
         </div>
       }>
-      <div className="space-y-4">
+      <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
         {emails.map((email) => (
           <div key={email.id}
             className={`rounded-xl border-2 transition-all overflow-hidden ${email.approved === true ? "border-emerald-400 bg-emerald-50/50 dark:bg-emerald-900/10" : email.approved === false ? "border-red-400 bg-red-50/50 dark:bg-red-900/10 opacity-60" : "border-slate-200 dark:border-gray-700"}`}>
@@ -392,11 +394,17 @@ export default function PipelinePage() {
   const handleRunFull = async () => {
     setRunning("all", true);
     try {
-      await runFull();
-      toast.success("Full pipeline initiated! Data will sync to Google Sheets.");
-      setResult("all", { message: "Pipeline started" });
+      const { data } = await runFull();
+      toast.success("Full pipeline completed successfully!");
+      setResult("all", { 
+        message: data.message || "Pipeline completed", 
+        data: data.stats,
+        stats: data.stats 
+      });
     } catch (e) {
-      toast.error(e.response?.data?.error || "Failed to start pipeline");
+      const err = e.response?.data?.error || "Failed to run pipeline";
+      toast.error(err);
+      setResult("all", { error: err });
     } finally {
       setRunning("all", false);
     }
@@ -592,6 +600,34 @@ export default function PipelinePage() {
                             {res.data.results.sent.map((e, idx) => (
                               <div key={idx} className="mb-1"><strong>Sent to:</strong> {e.email} ({e.subject})</div>
                             ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {id === "all" && res.stats && (
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        {res.stats.scraping && (
+                          <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20">
+                            <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 mb-1">Scraping</p>
+                            <p className="text-sm text-slate-700 dark:text-slate-300">{res.stats.scraping.totalCompanies || 0} companies</p>
+                          </div>
+                        )}
+                        {res.stats.enrichment && (
+                          <div className="p-3 rounded-lg bg-violet-50 dark:bg-violet-900/20">
+                            <p className="text-xs font-semibold text-violet-600 dark:text-violet-400 mb-1">Enrichment</p>
+                            <p className="text-sm text-slate-700 dark:text-slate-300">{res.stats.enrichment.totalContacts || 0} contacts</p>
+                          </div>
+                        )}
+                        {res.stats.outreach && (
+                          <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-900/20">
+                            <p className="text-xs font-semibold text-orange-600 dark:text-orange-400 mb-1">Outreach</p>
+                            <p className="text-sm text-slate-700 dark:text-slate-300">{res.stats.outreach.totalSent || 0} sent</p>
+                          </div>
+                        )}
+                        {res.stats.scoring && (
+                          <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20">
+                            <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1">Scoring</p>
+                            <p className="text-sm text-slate-700 dark:text-slate-300">{res.stats.scoring.highPriority || 0} high priority</p>
                           </div>
                         )}
                       </div>
