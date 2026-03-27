@@ -110,9 +110,21 @@ function DataTable({ headers, rows, onDeleteRow, deletingRow }) {
         <tbody>
           {rows.map((row, rIdx) => (
             <tr key={rIdx} className="group hover:bg-red-50/40 dark:hover:bg-red-900/10 border-b border-slate-100 dark:border-gray-800/60 transition-colors">
-              {headers.map((_, cIdx) => (
-                <td key={cIdx} className="px-4 py-2 text-slate-700 dark:text-slate-300 max-w-[200px] truncate text-xs" title={row[cIdx]}>{row[cIdx] || "—"}</td>
-              ))}
+              {headers.map((_, cIdx) => {
+                const val = row[cIdx];
+                const isUrl = typeof val === "string" && (val.startsWith("http://") || val.startsWith("https://"));
+                return (
+                  <td key={cIdx} className="px-4 py-2 text-slate-700 dark:text-slate-300 max-w-[200px] truncate text-xs" title={val}>
+                    {isUrl ? (
+                      <a href={val} target="_blank" rel="noopener noreferrer" 
+                        className="text-brand-600 dark:text-brand-400 hover:underline inline-flex items-center gap-1 transition-colors">
+                        {val}
+                        <ExternalLink size={10} className="shrink-0" />
+                      </a>
+                    ) : (val || "—")}
+                  </td>
+                );
+              })}
               {onDeleteRow && (
                 <td className="px-3 py-2 text-right">
                   <button onClick={() => onDeleteRow(rIdx)} disabled={deletingRow !== null} title="Delete row"
