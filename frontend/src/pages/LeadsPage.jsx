@@ -9,6 +9,7 @@ export default function LeadsPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("ALL");
+  const [sourceFilter, setSourceFilter] = useState("ALL");
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -39,11 +40,22 @@ export default function LeadsPage() {
     fetchLeads();
   }, []);
 
+  const uniqueSources = useMemo(() => {
+    if (!data) return [];
+    const sources = data
+      .map(r => r["Source"] || "")
+      .filter(s => s.trim() !== "");
+    return [...new Set(sources)].sort();
+  }, [data]);
+
   const filtered = useMemo(() => {
     if (!data) return [];
     let result = data;
     if (filter !== "ALL") {
       result = result.filter(r => r["Priority"] === filter);
+    }
+    if (sourceFilter !== "ALL") {
+      result = result.filter(r => r["Source"] === sourceFilter);
     }
     if (search) {
       const q = search.toLowerCase();
@@ -53,7 +65,7 @@ export default function LeadsPage() {
       );
     }
     return result;
-  }, [data, filter, search]);
+  }, [data, filter, sourceFilter, search]);
 
   const getBadgeClass = (p) => {
     if (p === "HIGH") return "badge-high";
@@ -70,19 +82,32 @@ export default function LeadsPage() {
 
   return (
     <div className="h-full flex flex-col gap-6">
-      <div className="flex flex-col md:flex-row justify-between gap-4 glass-card p-4">
-        <div className="relative w-full md:w-72">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input 
-            type="text" 
-            className="input pl-9" 
-            placeholder="Search company or contact..." 
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+      <div className="flex flex-col xl:flex-row justify-between gap-4 glass-card p-4">
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="relative w-full md:w-72">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input 
+              type="text" 
+              className="input pl-9" 
+              placeholder="Search company or contact..." 
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          
+          <select 
+            value={sourceFilter} 
+            onChange={e => setSourceFilter(e.target.value)}
+            className="input w-full md:w-56 bg-white dark:bg-gray-800 text-sm"
+          >
+            <option value="ALL">All Campaigns / Sources</option>
+            {uniqueSources.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
         </div>
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 md:pb-0">
-          <Filter size={16} className="text-slate-400 mr-2" />
+          <Filter size={16} className="text-slate-400 mr-2 shrink-0" />
           {PRIORITIES.map(p => (
             <button
               key={p}

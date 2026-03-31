@@ -371,12 +371,12 @@ app.post("/api/pipeline/score", async (req, res) => {
       const headers = [
         "Company ID", "Company Name", "Contact Name", "Title", "Email",
         "Total Score", "Company Score", "Engagement Score", "Sentiment Score",
-        "Priority", "Last Activity", "Notes",
+        "Priority", "Source", "Last Activity", "Scored At", "Notes",
       ];
       const rows = scores.map((l) => [
         l.companyId, l.companyName, l.contactName, l.title, l.email,
         l.totalScore, l.companyScore, l.engagementScore, l.sentimentScore,
-        l.priority, l.lastActivity, l.notes || "",
+        l.priority, (l.source || ""), (l.lastActivity || ""), (l.scoredAt || ""), (l.notes || ""),
       ]);
       runTabName = await sheets.createPipelineRunTab("Score ", headers, rows);
     } catch (sheetErr) {

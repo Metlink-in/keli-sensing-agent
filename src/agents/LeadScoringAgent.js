@@ -122,6 +122,7 @@ class LeadScoringAgent {
         alignment: `${Math.round(alignmentScore)}/100 (weight: 10%)`,
       },
       scoredAt: new Date().toISOString(),
+      source: contact.source || company?.source || "Direct / Unknown",
     };
   }
 

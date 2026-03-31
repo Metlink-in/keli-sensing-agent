@@ -47,7 +47,7 @@ const HEADERS = {
   [SHEETS.LEADS]: [
     "Company ID", "Company Name", "Contact Name", "Title", "Email",
     "Total Score", "Company Score", "Engagement Score", "Sentiment Score",
-    "Priority", "Last Activity", "Notes",
+    "Priority", "Source", "Last Activity", "Scored At", "Notes",
   ],
 };
 
@@ -352,7 +352,7 @@ class GoogleSheetsIntegration {
     const rows = leadScores.map((l) => [
       l.companyId, l.companyName, l.contactName, l.title, l.email,
       l.totalScore, l.companyScore, l.engagementScore, l.sentimentScore,
-      l.priority, l.lastActivity, l.notes || "",
+      l.priority, (l.source || ""), (l.lastActivity || ""), (l.scoredAt || ""), (l.notes || ""),
     ]);
     return this._appendRows(SHEETS.LEADS, rows);
   }
