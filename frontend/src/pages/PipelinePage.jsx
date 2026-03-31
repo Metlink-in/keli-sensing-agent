@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   Play, Loader2, Settings2, X, ChevronDown, Check, XCircle,
   CheckCheck, MailOpen, Users, Building2, Calendar, Target,
@@ -170,14 +171,22 @@ function OutreachModal({ onClose, onRun, scrapeRuns }) {
   const [selectedList, setSelectedList] = useState(scrapeRuns[0]?.tabName || "latest");
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [emails, setEmails] = useState([]);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
 
-  const handlePreview = async () => {
+  const handlePreview = async (isAppend = false) => {
     setLoadingPreview(true);
-    const loadingToast = toast.loading("Generating AI-personalized emails for all contacts...");
+    const loadingToast = toast.loading(isAppend ? "Generating more emails..." : "Generating AI-personalized emails...");
     try {
-      const { data } = await previewOutreach({ targetList: selectedList });
-      toast.success(`Generated ${data.previews.length} personalized emails!`, { id: loadingToast });
-      setEmails(data.previews.map(e => ({ ...e, approved: null })));
+      const currentOffset = isAppend === true ? offset : 0;
+      const { data } = await previewOutreach({ targetList: selectedList, limit: 3, offset: currentOffset });
+      
+      const newItems = data.previews.map(e => ({ ...e, approved: null }));
+      toast.success(`Generated ${newItems.length} personalized emails!`, { id: loadingToast });
+      
+      setEmails(prev => (isAppend === true ? [...prev, ...newItems] : newItems));
+      setOffset(currentOffset + newItems.length);
+      setHasMore(data.hasMore);
       setStep("preview");
     } catch (e) {
       toast.error(e.response?.data?.error || "Failed to generate preview emails", { id: loadingToast });
@@ -221,7 +230,7 @@ function OutreachModal({ onClose, onRun, scrapeRuns }) {
         <div className="flex gap-3 p-4 rounded-xl bg-slate-50 dark:bg-gray-900/40 border border-slate-200 dark:border-gray-700">
           <Info size={16} className="text-brand-500 mt-0.5 shrink-0" />
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            Clicking "Generate Email Previews" will create <strong>AI-personalized emails for ALL enriched contacts</strong>. Review and approve only the emails you want to send. This may take a few moments depending on the number of contacts.
+            Clicking "Generate Email Previews" will create <strong>AI-personalized emails for 3 contacts at a time</strong>. Review and approve the emails you want to send. You can generate more afterwards.
           </p>
         </div>
       </Modal>
@@ -236,7 +245,13 @@ function OutreachModal({ onClose, onRun, scrapeRuns }) {
           <button onClick={approveAll} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors">
             <CheckCheck size={15} /> Approve All ({emails.length})
           </button>
-          <div className="flex gap-3">
+          <div className="flex gap-3 items-center">
+            {hasMore && (
+              <button onClick={() => handlePreview(true)} disabled={loadingPreview} className="btn-secondary flex items-center gap-1.5 border-brand-200 text-brand-700 hover:bg-brand-50">
+                {loadingPreview ? <Loader2 size={14} className="animate-spin" /> : null}
+                Generate 3 More
+              </button>
+            )}
             <button onClick={() => setStep("config")} className="btn-secondary">← Back</button>
             <button onClick={handleSend} disabled={approvedCount === 0}
               className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">
@@ -578,13 +593,19 @@ export default function PipelinePage() {
                       <p className="text-sm text-slate-600 dark:text-slate-400">Companies Discovered: {res.data.companiesDiscovered}</p>
                     )}
                     {id === "enrich" && res.data && (
-                      <p className="text-sm text-slate-600 dark:text-slate-400">Contacts Enriched: {res.data.contactsEnriched}</p>
+                      <div className="flex flex-col gap-2">
+                        <p className="text-sm text-slate-600 dark:text-slate-400">Contacts Enriched: {res.data.contactsEnriched}</p>
+                        <Link to="/sheets" className="text-xs font-semibold text-brand-600 hover:underline">↗ View Enriched Contacts in Sheets</Link>
+                      </div>
                     )}
                     {id === "score" && res.data && (
-                      <div className="flex gap-4 mt-2">
-                        <span className="text-xs font-semibold px-2 py-1 bg-red-50 text-red-600 rounded">HIGH: {res.data.highPriority}</span>
-                        <span className="text-xs font-semibold px-2 py-1 bg-amber-50 text-amber-600 rounded">MED: {res.data.mediumPriority}</span>
-                        <span className="text-xs font-semibold px-2 py-1 bg-slate-50 text-slate-600 rounded">LOW: {res.data.lowPriority}</span>
+                      <div className="flex flex-col gap-2 mt-2">
+                        <div className="flex gap-4">
+                          <span className="text-xs font-semibold px-2 py-1 bg-red-50 text-red-600 rounded">HIGH: {res.data.highPriority}</span>
+                          <span className="text-xs font-semibold px-2 py-1 bg-amber-50 text-amber-600 rounded">MED: {res.data.mediumPriority}</span>
+                          <span className="text-xs font-semibold px-2 py-1 bg-slate-50 text-slate-600 rounded">LOW: {res.data.lowPriority}</span>
+                        </div>
+                        <Link to="/leads" className="text-xs font-semibold text-brand-600 hover:underline mt-1">↗ View Details in Lead Scores</Link>
                       </div>
                     )}
                     {id === "outreach" && res.data?.results && (
@@ -630,6 +651,13 @@ export default function PipelinePage() {
                             <p className="text-sm text-slate-700 dark:text-slate-300">{res.stats.scoring.highPriority || 0} high priority</p>
                           </div>
                         )}
+                      </div>
+                    )}
+                    {id === "report" && (
+                      <div className="mt-2">
+                        <a href={import.meta.env.VITE_GOOGLE_SHEET_URL} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-brand-600 hover:underline">
+                          🔗 Open Google Sheet Report
+                        </a>
                       </div>
                     )}
                   </div>

@@ -44,9 +44,6 @@ class PipelineOrchestrator {
     this._printBanner();
     logger.info("Starting FULL pipeline run");
 
-    // Always clear dedup so the pipeline produces fresh results
-    dedup.clear();
-
     const timer = this._startTimer();
 
     await this.runScraping();
@@ -63,8 +60,6 @@ class PipelineOrchestrator {
   // PHASE 2 — SCRAPING
   // ──────────────────────────────────────────────────────────
   async runScraping() {
-    // Always clear dedup so scraping always produces companies
-    dedup.clear();
     logger.info(chalk.cyan("\n▶ PHASE 2: Company Discovery & Scraping"));
 
     const bar = this._createProgressBar("Scraping");

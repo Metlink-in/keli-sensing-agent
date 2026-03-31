@@ -222,6 +222,16 @@ app.post("/api/pipeline/outreach/preview", async (req, res) => {
       });
     }
 
+    const totalContacts = contacts.length;
+    let limit = parseInt(req.body.limit);
+    if (isNaN(limit) || limit <= 0) limit = totalContacts;
+    
+    let offset = parseInt(req.body.offset);
+    if (isNaN(offset) || offset < 0) offset = 0;
+
+    contacts = contacts.slice(offset, offset + limit);
+    const hasMore = (offset + limit) < totalContacts;
+
     // Load ICP config for personalization
     const icpPath = path.join(__dirname, "config/icp.config.js");
     delete require.cache[require.resolve(icpPath)];
@@ -291,7 +301,7 @@ app.post("/api/pipeline/outreach/preview", async (req, res) => {
       }
     }
 
-    res.json({ success: true, previews, total: previews.length });
+    res.json({ success: true, previews, total: totalContacts, hasMore });
   } catch (err) {
     logger.error(`Outreach preview failed: ${err.message}`);
     res.status(500).json({ error: err.message });
